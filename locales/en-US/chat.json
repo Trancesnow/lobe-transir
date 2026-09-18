@@ -1451,6 +1451,7 @@
   "runtimeEnv.mode.noneDesc": "Disable runtime environment",
   "runtimeEnv.selectMode": "Select Runtime Environment",
   "runtimeEnv.title": "Runtime Environment",
+  "saveToResource": "Save to Resources",
   "search.grounding.imageSearchQueries": "Image Search Keywords",
   "search.grounding.imageTitle": "Found {{count}} images",
   "search.grounding.searchQueries": "Search Keywords",

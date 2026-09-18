@@ -181,9 +181,7 @@ const Checker = memo<ConnectionCheckerProps>(
       <Flexbox gap={8}>
         <Flexbox horizontal gap={8}>
           <Select
-            virtual
             disabled={!canManageProvider}
-            listItemHeight={36}
             options={sortedModels.map((id) => ({ label: id, value: id }))}
             popupClassName={cx(styles.popup)}
             suffixIcon={isProviderConfigUpdating && <Icon spin icon={Loader2Icon} />}

@@ -2590,6 +2590,93 @@ export class MessageModel {
   };
 
   /**
+   * Distinct file ids attached (via `messages_files`) to the given messages,
+   * scoped to the caller. Used when deleting a message to find its ephemeral
+   * attachments.
+   */
+  findFileIdsByMessageIds = async (messageIds: string[]): Promise<string[]> => {
+    if (messageIds.length === 0) return [];
+
+    const rows = await this.db
+      .selectDistinct({ fileId: messagesFiles.fileId })
+      .from(messagesFiles)
+      .where(
+        and(inArray(messagesFiles.messageId, messageIds), eq(messagesFiles.userId, this.userId)),
+      );
+
+    return rows.map((row) => row.fileId);
+  };
+
+  /**
+   * Among `fileIds`, those still attached to a message outside
+   * `excludedMessageIds` (same caller). A file with such a reference must
+   * survive the deletion of one of its attaching messages.
+   */
+  findFileIdsReferencedOutsideMessages = async (
+    fileIds: string[],
+    excludedMessageIds: string[],
+  ): Promise<string[]> => {
+    if (fileIds.length === 0) return [];
+
+    const rows = await this.db
+      .selectDistinct({ fileId: messagesFiles.fileId })
+      .from(messagesFiles)
+      .where(
+        and(
+          inArray(messagesFiles.fileId, fileIds),
+          eq(messagesFiles.userId, this.userId),
+          not(inArray(messagesFiles.messageId, excludedMessageIds)),
+        ),
+      );
+
+    return rows.map((row) => row.fileId);
+  };
+
+  /**
+   * Plugin rows (tool messages) for the given tool call ids — the vehicle for
+   * tool-render payloads such as a create-document card's `documentId`.
+   */
+  findPluginStatesByToolCallIds = async (toolCallIds: string[]) => {
+    if (toolCallIds.length === 0) return [];
+
+    return this.db
+      .select({ id: messagePlugins.id, state: messagePlugins.state })
+      .from(messagePlugins)
+      .where(
+        and(
+          inArray(messagePlugins.toolCallId, toolCallIds),
+          eq(messagePlugins.userId, this.userId),
+        ),
+      );
+  };
+
+  /**
+   * Among `documentIds`, those whose id still appears in another message's
+   * plugin state (`state.documentId`) outside `excludedMessageIds`.
+   */
+  findDocumentIdsReferencedOutsideMessages = async (
+    documentIds: string[],
+    excludedMessageIds: string[],
+  ): Promise<string[]> => {
+    if (documentIds.length === 0) return [];
+
+    const documentIdInState = sql<string>`${messagePlugins.state}->>'documentId'`;
+
+    const rows = await this.db
+      .selectDistinct({ documentId: documentIdInState })
+      .from(messagePlugins)
+      .where(
+        and(
+          inArray(documentIdInState, documentIds),
+          eq(messagePlugins.userId, this.userId),
+          not(inArray(messagePlugins.id, excludedMessageIds)),
+        ),
+      );
+
+    return rows.map((row) => row.documentId).filter(Boolean);
+  };
+
+  /**
    * Ids among `ids` that resolve to an agent-share VISITOR message under this
    * owner — the inverse of the `notShareVisitorMessage()` predicate every
    * creator-facing read applies.

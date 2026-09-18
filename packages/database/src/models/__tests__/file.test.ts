@@ -660,6 +660,27 @@ describe('FileModel', () => {
       expect(userFiles[1].id).toBe(file1.id);
     });
 
+    it('should exclude ephemeral files from listings', async () => {
+      await fileModel.create({
+        name: 'visible.txt',
+        url: 'https://example.com/visible.txt',
+        size: 100,
+        fileType: 'text/plain',
+      });
+      await serverDB.insert(files).values({
+        name: 'generated.png',
+        url: 'https://example.com/generated.png',
+        size: 200,
+        fileType: 'image/png',
+        metadata: { ephemeral: true },
+        userId,
+      });
+
+      const userFiles = await fileModel.query();
+      expect(userFiles).toHaveLength(1);
+      expect(userFiles[0].name).toBe('visible.txt');
+    });
+
     it('should filter files by name', async () => {
       await serverDB.insert(files).values(sharedFileList);
       const filteredFiles = await fileModel.query({ q: 'DOC' });

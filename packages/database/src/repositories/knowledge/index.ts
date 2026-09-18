@@ -499,6 +499,9 @@ export class KnowledgeRepo {
         !knowledgeBaseId && excludeKnowledgeBaseIds?.length
           ? this.notInKnowledgeBases(excludeKnowledgeBaseIds)
           : undefined,
+        // Ephemeral assistant artifacts stay reachable by id but never appear in
+        // listings; COALESCE sentinel avoids the pg_search null-test crash.
+        sql`COALESCE(${f.metadata}->>'ephemeral', 'false') != 'true'`,
       ],
       knowledgeBaseId,
       sourceFilter,
@@ -524,6 +527,7 @@ export class KnowledgeRepo {
         !knowledgeBaseId && excludeKnowledgeBaseIds?.length
           ? or(isNull(d.knowledgeBaseId), notInArray(d.knowledgeBaseId, excludeKnowledgeBaseIds))
           : undefined,
+        sql`COALESCE(${d.metadata}->>'ephemeral', 'false') != 'true'`,
       ],
       includeContent,
       includeContentPreview,
@@ -559,6 +563,7 @@ export class KnowledgeRepo {
         // Derived pages live in the documents table; their backing file row is not
         // a file the user uploaded, so it never belongs to the file list.
         kind === 'file' ? ne(f.fileType, CUSTOM_DOCUMENT_FILE_TYPE) : undefined,
+        sql`COALESCE(${f.metadata}->>'ephemeral', 'false') != 'true'`,
       ],
       undefined,
       undefined,
@@ -571,6 +576,7 @@ export class KnowledgeRepo {
         this.visibilityFilter(visibility, d.visibility),
         // Folders are containers, not pages.
         kind === 'page' ? ne(d.fileType, CUSTOM_FOLDER_FILE_TYPE) : undefined,
+        sql`COALESCE(${d.metadata}->>'ephemeral', 'false') != 'true'`,
       ],
       false,
     );

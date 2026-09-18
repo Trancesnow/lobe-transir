@@ -64,6 +64,7 @@ interface UpsertDocumentParams {
 }
 
 interface CreateAgentDocumentOptions {
+  ephemeral?: boolean;
   hintIsSkill?: boolean;
   parentId?: string;
 }
@@ -542,9 +543,10 @@ export class AgentDocumentsService {
           },
         }
       : undefined;
+    const finalMetadata = options.ephemeral ? { ...metadata, ephemeral: true } : metadata;
 
     return this.createWithUniqueFilename(agentId, finalTitle, strippedContent, {
-      ...(metadata ? { metadata } : {}),
+      ...(finalMetadata ? { metadata: finalMetadata } : {}),
       ...(options.parentId ? { parentId: options.parentId } : {}),
     });
   }

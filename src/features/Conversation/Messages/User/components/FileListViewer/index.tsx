@@ -10,10 +10,12 @@ interface FileListViewerProps {
 }
 
 const FileListViewer = memo<FileListViewerProps>(({ items }) => {
+  const ids = items.map((item) => item.id).filter(Boolean);
+
   return (
     <Flexbox gap={8}>
       {items.map((item) => (
-        <FileItem key={item.id} {...item} />
+        <FileItem ids={ids} key={item.id} {...item} />
       ))}
     </Flexbox>
   );

@@ -7,6 +7,7 @@ import { FileTextIcon, Maximize2, Minimize2, PencilLine } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import SaveToResourceButton from '@/components/SaveToResourceButton';
 import { useChatStore } from '@/store/chat';
 import { chatPortalSelectors } from '@/store/chat/slices/portal/selectors';
 
@@ -100,6 +101,7 @@ const DocumentCard = memo<DocumentCardProps>(({ content, documentId, title }) =>
                 onClick={handleToggle}
               />
             )}
+            {documentId && <SaveToResourceButton id={documentId} type={'document'} />}
           </Flexbox>
         </TooltipGroup>
       </Flexbox>

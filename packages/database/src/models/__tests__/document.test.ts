@@ -188,6 +188,25 @@ describe('DocumentModel', () => {
       expect(result.total).toBe(2);
     });
 
+    it('should exclude ephemeral documents from listings', async () => {
+      await createTestDocument(documentModel, fileModel, 'Visible document');
+      await documentModel.create({
+        content: 'Ephemeral document',
+        fileType: 'text/plain',
+        filename: 'ephemeral-document',
+        metadata: { ephemeral: true },
+        source: 'internal://ephemeral',
+        sourceType: 'api',
+        totalCharCount: 18,
+        totalLineCount: 1,
+      });
+
+      const result = await documentModel.query();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].metadata?.ephemeral).not.toBe(true);
+    });
+
     it('should exclude agent-owned documents unless sourceTypes explicitly requests them', async () => {
       await createTestDocument(documentModel, fileModel, 'Visible document');
       await documentModel.create({

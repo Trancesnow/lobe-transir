@@ -148,6 +148,12 @@ export const UploadFileSchema = z.object({
   source: z.string().optional(),
 
   /**
+   * mark the file as an ephemeral assistant artifact (excluded from the
+   * resource page until promoted)
+   */
+  ephemeral: z.boolean().optional(),
+
+  /**
    * file url if saveMode is url
    */
   url: z.string().optional(),

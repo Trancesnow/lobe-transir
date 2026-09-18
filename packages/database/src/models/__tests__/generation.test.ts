@@ -428,6 +428,7 @@ describe('GenerationModel', () => {
       expect(mockFileModelCreate).toHaveBeenCalledWith(
         {
           ...newFileData,
+          metadata: { ephemeral: true },
           source: FileSource.ImageGeneration,
         },
         true,
@@ -557,6 +558,7 @@ describe('GenerationModel', () => {
       expect(mockFileModelCreate).toHaveBeenCalledWith(
         {
           ...newFileData,
+          metadata: { ephemeral: true },
           source: FileSource.ImageGeneration,
           visibility: 'private',
         },
@@ -1061,6 +1063,7 @@ describe('GenerationModel', () => {
       expect(mockFileModelCreate).toHaveBeenCalledWith(
         {
           ...fileData,
+          metadata: { ephemeral: true },
           source: FileSource.ImageGeneration,
         },
         true,

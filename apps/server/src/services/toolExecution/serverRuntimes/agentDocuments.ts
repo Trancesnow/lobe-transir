@@ -158,7 +158,12 @@ export const agentDocumentsRuntime: ServerRuntimeRegistration = {
                 summary: 'Agent documents created a document.',
                 toolAction: 'create',
               },
-              () => service.createDocument(agentId, title, content, { hintIsSkill, parentId }),
+              () =>
+                service.createDocument(agentId, title, content, {
+                  ephemeral: true,
+                  hintIsSkill,
+                  parentId,
+                }),
             ),
           );
           return doc;

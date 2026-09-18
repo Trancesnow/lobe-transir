@@ -140,6 +140,12 @@ const formatUnitPrice = (price: number) => {
   return `${integer}.${trimmedFraction}`;
 };
 
+export const getCurrencySymbol = (currency?: ModelPriceCurrency) =>
+  currency === 'CNY' ? '¥' : '$';
+
+/**
+ * Normalizes the price to USD for unified display on cost/usage surfaces.
+ */
 export const formatPriceByCurrency = (price?: number, currency?: ModelPriceCurrency) => {
   if (!price && price !== 0) return '-';
 
@@ -147,6 +153,17 @@ export const formatPriceByCurrency = (price?: number, currency?: ModelPriceCurre
     return formatUnitPrice(price / USD_TO_CNY);
   }
   return formatUnitPrice(price);
+};
+
+/**
+ * Formats a unit price in the currency it is denominated in, with the currency
+ * symbol included (e.g. `¥0.8` for CNY, `$0.11` for USD). Use this on pricing
+ * surfaces that should mirror what the provider charges.
+ */
+export const formatPriceInCurrency = (price?: number, currency?: ModelPriceCurrency) => {
+  if (!price && price !== 0) return '-';
+
+  return getCurrencySymbol(currency) + formatUnitPrice(price);
 };
 
 export const formatDate = (date?: Date) => {

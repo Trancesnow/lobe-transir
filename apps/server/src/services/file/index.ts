@@ -196,6 +196,7 @@ export class FileService {
    */
   public async createFileRecord(
     params: {
+      ephemeral?: boolean;
       fileHash: string;
       fileType: string;
       id?: string;
@@ -210,6 +211,7 @@ export class FileService {
   ): Promise<{ fileId: string; url: string }> {
     // Check if hash already exists in globalFiles
     const existingFile = await this.fileModel.checkHash(params.fileHash);
+    const metadata = params.ephemeral ? { ...params.metadata, ephemeral: true } : params.metadata;
     const { isExist } = existingFile;
 
     let shouldRefreshGlobalFile = false;
@@ -221,7 +223,7 @@ export class FileService {
       // Keep global hash dedup usable when the same file is uploaded again to a
       // fresh object key after the previous storage object has been removed.
       await this.fileModel.updateGlobalFile(params.fileHash, {
-        metadata: params.metadata,
+        metadata,
         url: params.url,
       });
     }
@@ -233,7 +235,7 @@ export class FileService {
         fileHash: params.fileHash,
         fileType: params.fileType,
         id: params.id, // Use custom ID if provided
-        metadata: params.metadata,
+        metadata,
         name: params.name,
         size: params.size,
         source: params.source,
@@ -330,7 +332,7 @@ export class FileService {
   public async uploadBase64(
     base64Data: string,
     pathname: string,
-    options?: { fileType?: string },
+    options?: { ephemeral?: boolean; fileType?: string },
   ): Promise<{ fileId: string; key: string; url: string }> {
     let base64String: string;
 
@@ -373,6 +375,7 @@ export class FileService {
 
     // Use common method to create file record
     const { fileId: createdId, url } = await this.createFileRecord({
+      ephemeral: options?.ephemeral,
       fileHash: hash,
       fileType,
       id: fileId, // Use UUID instead of auto-generated ID
@@ -405,7 +408,7 @@ export class FileService {
      * is removed again when it rejects.
      */
     beforeRecord?: (trx: Transaction) => Promise<void>,
-    recordOptions?: Pick<FileItem, 'source' | 'visibility'>,
+    recordOptions?: Partial<Pick<FileItem, 'source' | 'visibility'>> & { ephemeral?: boolean },
   ): Promise<{ fileId: string; key: string; url: string }> {
     // Use uploadBuffer with explicit contentType so S3 Content-Type matches
     // the actual bytes (e.g. PNG buffer won't get image/jpeg from .jpg pathname)
@@ -429,6 +432,7 @@ export class FileService {
 
         return this.createFileRecord(
           {
+            ephemeral: recordOptions?.ephemeral,
             fileHash: hash,
             fileType: mimeType,
             id: fileId,

@@ -225,12 +225,14 @@ export const fileRouter = router({
     .use(withScopedPermission('file:upload'))
     .input(
       UploadFileSchema.omit({ url: true }).extend({
+        ephemeral: z.boolean().optional(),
         parentId: z.string().optional(),
         url: z.string(),
         visibility: z.enum(['private', 'public']).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const metadata = input.ephemeral ? { ...input.metadata, ephemeral: true } : input.metadata;
       const existingFile = await ctx.fileModel.checkHash(input.hash!);
       const { isExist } = existingFile;
       const latestUpload = await ctx.fileUploadService.findLatest(input.url);
@@ -285,7 +287,7 @@ export const fileRouter = router({
           (settledFile.source ?? undefined) === toFileSource(input.source) &&
           settledFile.url === input.url &&
           (!ctx.workspaceId || settledFile.visibility === resolvedVisibility) &&
-          isEqual(settledFile.metadata, input.metadata ?? null);
+          isEqual(settledFile.metadata, metadata ?? null);
 
         if (isRetry) {
           return {
@@ -367,7 +369,7 @@ export const fileRouter = router({
           await ctx.fileModel.updateGlobalFile(
             input.hash!,
             {
-              metadata: input.metadata,
+              metadata,
               url: input.url,
             },
             trx,
@@ -380,7 +382,7 @@ export const fileRouter = router({
               fileHash: input.hash,
               fileType: input.fileType,
               knowledgeBaseId: input.knowledgeBaseId,
-              metadata: input.metadata,
+              metadata,
               name: input.name,
               parentId: resolvedParentId,
               size: actualSize,
@@ -882,7 +884,7 @@ export const fileRouter = router({
             userId: ctx.userId,
             workspaceId: ctx.workspaceId,
           }),
-        { source: FileSource.PageEditor, visibility: 'private' },
+        { ephemeral: true, source: FileSource.PageEditor, visibility: 'private' },
       );
       return { fileId: result.fileId, url: result.url };
     }),
@@ -901,6 +903,37 @@ export const fileRouter = router({
 
       // delete the file from S3 if it is not used by other files
       await ctx.fileService.deleteFile(file.url!);
+    }),
+
+  promoteFile: fileProcedure
+    .use(withScopedPermission('file:update'))
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const existing = await ctx.fileModel.findById(input.id);
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'File not found' });
+
+      const metadata = (existing.metadata ?? {}) as Record<string, unknown>;
+      // 幂等：非临时文件直接成功返回
+      if (metadata.ephemeral !== true) return { success: true };
+
+      const rest = { ...metadata };
+      delete rest.ephemeral;
+      await ctx.fileModel.update(input.id, { metadata: rest } as any);
+
+      return { success: true };
+    }),
+
+  getEphemeralStatus: fileProcedure
+    .input(z.object({ ids: z.array(z.string()).max(100) }))
+    .query(async ({ input, ctx }) => {
+      const files = await ctx.fileModel.findByIds(input.ids);
+
+      return Object.fromEntries(
+        files.map((file) => [
+          file.id,
+          (file.metadata as Record<string, unknown> | null)?.ephemeral === true,
+        ]),
+      );
     }),
 
   removeUnreferencedFile: fileProcedure

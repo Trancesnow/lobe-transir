@@ -151,6 +151,7 @@ export class GenerationModel {
       const newFile = await this.fileModel.create(
         {
           ...file,
+          metadata: { ...((file.metadata ?? {}) as Record<string, unknown>), ephemeral: true },
           parentId: file.parentId ?? undefined,
           source,
           ...(this.workspaceId ? { visibility: topicVisibility } : {}),

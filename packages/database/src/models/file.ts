@@ -387,6 +387,10 @@ export class FileModel {
       // by id, but never appear in a listing. Applied here rather than in
       // `ownership()` so single-row reads and deletes still resolve them.
       or(isNull(files.source), notInArray(files.source, LIBRARY_HIDDEN_FILE_SOURCES)),
+      // Ephemeral (assistant-produced) files stay reachable by id, but never
+      // appear in a listing. COALESCE sentinel: `#>> … IS NULL` in a WHERE
+      // clause breaks the pg_search planner on this table.
+      sql`COALESCE(${files.metadata}->>'ephemeral', 'false') != 'true'`,
     );
     if (category && category !== FilesTabs.All && category !== FilesTabs.Home) {
       const categoryFilter = buildFileCategoryFilter(files.fileType, category as FilesTabs);

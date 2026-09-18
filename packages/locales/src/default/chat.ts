@@ -95,6 +95,7 @@ export default {
   'groupNotFound.title': 'Group Unavailable',
   'inaccessibleFile.desc': 'No access — it may have been set to private or deleted by its owner',
   'inaccessibleFile.name': 'Unavailable file',
+  'saveToResource': 'Save to Resources',
   'internalLink.agent.open': 'Open agent',
   'agentProfile.files_one': '{{count}} file',
   'agentProfile.files_other': '{{count}} files',

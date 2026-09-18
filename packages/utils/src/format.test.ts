@@ -8,6 +8,7 @@ import {
   formatNumber,
   formatPrice,
   formatPriceByCurrency,
+  formatPriceInCurrency,
   formatShortenNumber,
   formatSize,
   formatSpeed,
@@ -15,6 +16,7 @@ import {
   formatTime,
   formatTokenNumber,
   formatUsageValue,
+  getCurrencySymbol,
 } from './format';
 
 describe('format', () => {
@@ -224,6 +226,32 @@ describe('format', () => {
       const price = 1000;
       const expectedCNY = formatPrice(price / USD_TO_CNY);
       expect(formatPriceByCurrency(price, 'CNY')).toBe(expectedCNY);
+    });
+  });
+
+  describe('getCurrencySymbol', () => {
+    it('should return the symbol for each currency', () => {
+      expect(getCurrencySymbol('CNY')).toBe('¥');
+      expect(getCurrencySymbol('USD')).toBe('$');
+      expect(getCurrencySymbol(undefined)).toBe('$');
+    });
+  });
+
+  describe('formatPriceInCurrency', () => {
+    it('should format denominated prices with the currency symbol', () => {
+      expect(formatPriceInCurrency(0.8, 'CNY')).toBe('¥0.80');
+      expect(formatPriceInCurrency(0.1096, 'USD')).toBe('$0.1096');
+      expect(formatPriceInCurrency(2.5, 'CNY')).toBe('¥2.50');
+    });
+
+    it('should keep the denominated value without conversion', () => {
+      // CNY prices must NOT be normalized to USD on pricing surfaces
+      expect(formatPriceInCurrency(7.12, 'CNY')).toBe('¥7.12');
+    });
+
+    it('should handle undefined and zero', () => {
+      expect(formatPriceInCurrency(undefined)).toBe('-');
+      expect(formatPriceInCurrency(0, 'CNY')).toBe('¥0.00');
     });
   });
 

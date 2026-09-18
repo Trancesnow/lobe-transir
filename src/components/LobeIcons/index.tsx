@@ -26,7 +26,7 @@ export const ModelIcon = (props: ComponentProps<typeof LobeModelIcon>) => {
   const size = props.size ?? DEFAULT_SIZE;
   return (
     <Suspense fallback={<Skeleton height={size} width={size} />}>
-      <LazyModelIcon {...props} />
+      <LazyModelIcon type="color" {...props} />
     </Suspense>
   );
 };
@@ -35,14 +35,14 @@ export const ProviderIcon = (props: ComponentProps<typeof LobeProviderIcon>) => 
   const size = props.size ?? DEFAULT_SIZE;
   return (
     <Suspense fallback={<Skeleton height={size} width={size} />}>
-      <LazyProviderIcon {...props} />
+      <LazyProviderIcon type="color" {...props} />
     </Suspense>
   );
 };
 
 export const ModelTag = (props: ComponentProps<typeof LobeModelTag>) => (
   <Suspense fallback={<Skeleton height={22} width={96} />}>
-    <LazyModelTag {...props} />
+    <LazyModelTag type="color" {...props} />
   </Suspense>
 );
 

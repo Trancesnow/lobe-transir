@@ -5,6 +5,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import FileIcon from '@/components/FileIcon';
+import SaveToResourceButton from '@/components/SaveToResourceButton';
 import { useChatStore } from '@/store/chat';
 import { type ChatFileItem } from '@/types/index';
 import { formatSize } from '@/utils/format';
@@ -39,33 +40,36 @@ const InaccessibleFileItem = memo(() => {
   );
 });
 
-const FileItem = memo<ChatFileItem>(({ id, fileType, size, name, inaccessible }) => {
-  const openFilePreview = useChatStore((s) => s.openFilePreview);
+const FileItem = memo<ChatFileItem & { ids?: string[] }>(
+  ({ id, fileType, size, name, inaccessible, ids }) => {
+    const openFilePreview = useChatStore((s) => s.openFilePreview);
 
-  if (inaccessible) return <InaccessibleFileItem />;
+    if (inaccessible) return <InaccessibleFileItem />;
 
-  return (
-    <Block
-      clickable
-      horizontal
-      align={'center'}
-      gap={12}
-      key={id}
-      paddingBlock={8}
-      paddingInline={'12px 16px'}
-      variant={'outlined'}
-      onClick={() => {
-        openFilePreview({ fileId: id });
-      }}
-    >
-      <FileIcon fileName={name} fileType={fileType} size={32} />
-      <Flexbox style={{ overflow: 'hidden' }}>
-        <Text ellipsis>{name}</Text>
-        <Text fontSize={12} type={'secondary'}>
-          {formatSize(size)}
-        </Text>
-      </Flexbox>
-    </Block>
-  );
-});
+    return (
+      <Block
+        clickable
+        horizontal
+        align={'center'}
+        gap={12}
+        key={id}
+        paddingBlock={8}
+        paddingInline={'12px 16px'}
+        variant={'outlined'}
+        onClick={() => {
+          openFilePreview({ fileId: id });
+        }}
+      >
+        <FileIcon fileName={name} fileType={fileType} size={32} />
+        <Flexbox style={{ overflow: 'hidden' }}>
+          <Text ellipsis>{name}</Text>
+          <Text fontSize={12} type={'secondary'}>
+            {formatSize(size)}
+          </Text>
+        </Flexbox>
+        <SaveToResourceButton id={id} ids={ids} />
+      </Block>
+    );
+  },
+);
 export default FileItem;

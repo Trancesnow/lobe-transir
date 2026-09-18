@@ -124,6 +124,7 @@ export class DocumentService {
   async createDocument(params: {
     content?: string;
     editorData: Record<string, any>;
+    ephemeral?: boolean;
     fileType?: string;
     knowledgeBaseId?: string;
     metadata?: Record<string, any>;
@@ -137,6 +138,7 @@ export class DocumentService {
       content,
       editorData,
       title,
+      ephemeral,
       fileType = CUSTOM_DOCUMENT_FILE_TYPE,
       metadata,
       knowledgeBaseId,
@@ -168,6 +170,7 @@ export class DocumentService {
     if (!resolvedVisibility && this.workspaceId) resolvedVisibility = 'private';
 
     let fileId: string | null = null;
+    const resolvedMetadata = ephemeral ? { ...metadata, ephemeral: true } : metadata;
 
     // If creating in a knowledge base, create a corresponding file record
     // BUT skip for folders - folders should only exist in the documents table
@@ -176,7 +179,7 @@ export class DocumentService {
         {
           fileType,
           knowledgeBaseId,
-          metadata,
+          metadata: resolvedMetadata,
           name: title,
           parentId,
           size: totalCharCount,
@@ -191,8 +194,8 @@ export class DocumentService {
     // Store knowledgeBaseId in metadata for folders (which don't have fileId)
     const finalMetadata =
       knowledgeBaseId && fileType === CUSTOM_FOLDER_FILE_TYPE
-        ? { ...metadata, knowledgeBaseId }
-        : metadata;
+        ? { ...resolvedMetadata, knowledgeBaseId }
+        : resolvedMetadata;
 
     const document = await this.documentModel.create({
       content,

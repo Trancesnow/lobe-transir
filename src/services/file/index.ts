@@ -59,6 +59,14 @@ export class FileService {
     await lambdaClient.file.removeFile.mutate({ id });
   };
 
+  promoteFile = async (id: string) => {
+    return lambdaClient.file.promoteFile.mutate({ id });
+  };
+
+  getEphemeralStatus = async (ids: string[]): Promise<Record<string, boolean>> => {
+    return lambdaClient.file.getEphemeralStatus.query({ ids });
+  };
+
   removeUnreferencedFile = async (id: string): Promise<void> => {
     await lambdaClient.file.removeUnreferencedFile.mutate({ id });
   };

@@ -167,6 +167,7 @@ export class SandboxMiddlewareService implements SandboxService {
       const fileHash = sha256(key + now.toString());
 
       const { fileId, url } = await fileService.createFileRecord({
+        ephemeral: true,
         fileHash,
         fileType: mimeType,
         name: filename,

@@ -12,7 +12,7 @@ import InlineTable from '@/components/InlineTable';
 import { ModelIcon } from '@/components/LobeIcons';
 import { ModelInfoTags } from '@/components/ModelSelect';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
-import { formatPriceByCurrency, formatTokenNumber } from '@/utils/format';
+import { formatPriceInCurrency, formatTokenNumber } from '@/utils/format';
 import { getTextInputUnitRate, getTextOutputUnitRate } from '@/utils/pricing';
 
 import { useDetailContext } from '../../../DetailProvider';
@@ -94,7 +94,7 @@ const ModelList = memo(() => {
               render: (_, record) => {
                 const inputRate = getTextInputUnitRate(record.pricing);
                 return inputRate
-                  ? '$' + formatPriceByCurrency(inputRate, record.pricing?.currency)
+                  ? formatPriceInCurrency(inputRate, record.pricing?.currency)
                   : '--';
               },
               showSorterTooltip: false,
@@ -116,7 +116,7 @@ const ModelList = memo(() => {
               render: (_, record) => {
                 const outputRate = getTextOutputUnitRate(record.pricing);
                 return outputRate
-                  ? '$' + formatPriceByCurrency(outputRate, record.pricing?.currency)
+                  ? formatPriceInCurrency(outputRate, record.pricing?.currency)
                   : '--';
               },
               showSorterTooltip: false,

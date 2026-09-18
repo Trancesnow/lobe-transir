@@ -112,6 +112,7 @@ export class FileUploadActionImpl {
 
   uploadBase64FileWithProgress = async (
     base64: string,
+    options?: { ephemeral?: boolean },
   ): Promise<UploadWithProgressResult | undefined> => {
     let uploadedPathname: string | undefined;
     try {
@@ -122,6 +123,7 @@ export class FileUploadActionImpl {
       uploadedPathname = metadata.path;
 
       const res = await fileService.createFile({
+        ephemeral: options?.ephemeral,
         fileType,
         hash,
         metadata: { ...metadata, ...dimensions },

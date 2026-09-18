@@ -335,6 +335,7 @@ describe('fileRouter rehostImage', () => {
       caller.rehostImage({ url: 'https://cdn.discordapp.com/image.png' }),
     ).resolves.toEqual({ fileId: 'image-id', url: 'https://lobehub.com/f/image-id' });
     expect(mockUploadFromBuffer.mock.calls[0][4]).toEqual({
+      ephemeral: true,
       source: FileSource.PageEditor,
       visibility: 'private',
     });

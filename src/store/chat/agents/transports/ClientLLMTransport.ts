@@ -257,7 +257,7 @@ export class ClientLLMTransport implements LLMTransport {
           this.context.get().internal_transformToolCalls(calls, offeredToolNames),
         uploadBase64Image: (data) =>
           getFileStoreState()
-            .uploadBase64FileWithProgress(data)
+            .uploadBase64FileWithProgress(data, { ephemeral: true })
             .then((file) => ({
               alt: file?.filename || file?.id,
               id: file?.id,

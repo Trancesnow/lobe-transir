@@ -3,7 +3,7 @@ import { Image } from '@lobehub/ui';
 import { ActionIcon } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar, cx } from 'antd-style';
 import { Trash } from 'lucide-react';
-import { type CSSProperties } from 'react';
+import { type CSSProperties, type ReactNode } from 'react';
 import { memo } from 'react';
 
 import { usePlatform } from '@/hooks/usePlatform';
@@ -33,6 +33,8 @@ interface ImageItemProps {
   alwaysShowClose?: boolean;
   className?: string;
   editable?: boolean;
+  /** 追加在图片悬停操作区的额外内容（如「保存到资源」按钮） */
+  extraActions?: ReactNode;
   height?: number;
   loading?: boolean;
   onClick?: () => void;
@@ -58,6 +60,7 @@ const ImageItem = memo<ImageItemProps>(
     ratio,
     width,
     height,
+    extraActions,
   }) => {
     const IMAGE_SIZE = editable ? MIN_IMAGE_SIZE : '100%';
     const { isSafari } = usePlatform();
@@ -79,17 +82,22 @@ const ImageItem = memo<ImageItemProps>(
         size={IMAGE_SIZE}
         src={url}
         actions={
-          editable && (
-            <ActionIcon
-              glass
-              className={styles.deleteButton}
-              icon={Trash}
-              size={'small'}
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemove?.();
-              }}
-            />
+          (editable || extraActions) && (
+            <>
+              {extraActions}
+              {editable && (
+                <ActionIcon
+                  glass
+                  className={styles.deleteButton}
+                  icon={Trash}
+                  size={'small'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove?.();
+                  }}
+                />
+              )}
+            </>
           )
         }
         style={{

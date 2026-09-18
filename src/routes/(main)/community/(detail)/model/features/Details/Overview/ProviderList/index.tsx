@@ -13,7 +13,7 @@ import { ProviderIcon } from '@/components/LobeIcons';
 import { ModelInfoTags } from '@/components/ModelSelect';
 import { BASE_PROVIDER_DOC_URL } from '@/const/url';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
-import { formatPriceByCurrency, formatTokenNumber } from '@/utils/format';
+import { formatPriceInCurrency, formatTokenNumber } from '@/utils/format';
 import { getTextInputUnitRate, getTextOutputUnitRate } from '@/utils/pricing';
 
 import { useDetailContext } from '../../../DetailProvider';
@@ -100,7 +100,7 @@ const ProviderList = memo(() => {
               render: (_, record) => {
                 const inputRate = getTextInputUnitRate(record.model?.pricing);
                 return inputRate
-                  ? '$' + formatPriceByCurrency(inputRate, record.model.pricing?.currency)
+                  ? formatPriceInCurrency(inputRate, record.model.pricing?.currency)
                   : '--';
               },
               showSorterTooltip: false,
@@ -122,7 +122,7 @@ const ProviderList = memo(() => {
               render: (_, record) => {
                 const outputRate = getTextOutputUnitRate(record.model?.pricing);
                 return outputRate
-                  ? '$' + formatPriceByCurrency(outputRate, record.model.pricing?.currency)
+                  ? formatPriceInCurrency(outputRate, record.model.pricing?.currency)
                   : '--';
               },
               showSorterTooltip: false,

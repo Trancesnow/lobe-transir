@@ -11,6 +11,7 @@ const IMAGE_EXT_BY_MEDIA_TYPE: Record<string, string> = {
 };
 
 export interface FileStoreCreateFileInput {
+  ephemeral?: boolean;
   fileType: string;
   hash: string;
   metadata: { date: string; dirname: string; filename: string; path: string };
@@ -84,6 +85,7 @@ export const createFileStoreImageUploader =
       }
 
       const record = await port.createFile({
+        ephemeral: true,
         fileType: mediaType,
         hash,
         metadata: { date, dirname: '', filename: fileName, path: pathname },

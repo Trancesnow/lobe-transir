@@ -1,5 +1,18 @@
 import { AGENT_ARTIFACT_SOURCE_TYPES } from '@lobechat/const';
-import { and, asc, count, desc, eq, inArray, isNull, ne, notInArray, or, sum } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  ne,
+  notInArray,
+  or,
+  sql,
+  sum,
+} from 'drizzle-orm';
 
 import type { DocumentItem, NewDocument } from '../schemas';
 import {
@@ -141,7 +154,12 @@ export class DocumentModel {
     total: number;
   }> => {
     const offset = current * pageSize;
-    const conditions = [this.ownership()];
+    const conditions = [
+      this.ownership(),
+      // Ephemeral assistant artifacts stay reachable by id but never appear in
+      // listings; COALESCE sentinel avoids a jsonb null-test in the WHERE clause.
+      sql`COALESCE(${documents.metadata}->>'ephemeral', 'false') != 'true'`,
+    ];
 
     if (fileTypes?.length) {
       conditions.push(inArray(documents.fileType, fileTypes));

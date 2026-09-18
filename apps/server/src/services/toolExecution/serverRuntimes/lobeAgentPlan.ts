@@ -51,6 +51,7 @@ export const createServerPlanRuntimeService = (
         content,
         description,
         fileType: AGENT_PLAN_FILE_TYPE,
+        metadata: { ephemeral: true },
         source: `lobe-agent:${topicId}`,
         // A plan is a machine-generated artifact; 'api' would make it
         // indistinguishable from a user-authored Page in resource listings.

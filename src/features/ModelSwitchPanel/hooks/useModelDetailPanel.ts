@@ -33,7 +33,7 @@ import type { ModelDetailPanelExpandedKey } from '@/store/global/initialState';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import type { EnabledProviderWithModels } from '@/types/aiProvider';
 import { formatNumber, formatShortenNumber, formatTokenNumber } from '@/utils/format';
-import { formatPriceByCurrency, getOriginalUnitRateByName, getUnitRateByName } from '@/utils/index';
+import { formatPriceInCurrency, getOriginalUnitRateByName, getUnitRateByName } from '@/utils/index';
 
 import type { PricingMode } from '../types';
 
@@ -71,7 +71,7 @@ const formatPricingRate = (
 
   return options.isCreditPricing
     ? formatBrandingCreditRate(rate, options.unit)
-    : formatPriceByCurrency(rate, currency);
+    : formatPriceInCurrency(rate, currency);
 };
 
 const getFormattedUnitPrice = (
@@ -171,8 +171,8 @@ const formatUnitRate = (
 ): FormattedUnitPrice => {
   const formatRate = (rate: number) =>
     formatPricingRate(rate, currency, { isCreditPricing, unit: unit.unit });
-  const formatRange = (low: string, high: string) =>
-    isCreditPricing ? `${low} ~ ${high}` : `${low} ~ $${high}`;
+  // rates already carry their currency symbol via formatPriceInCurrency
+  const formatRange = (low: string, high: string) => `${low} ~ ${high}`;
 
   if (unit.strategy === 'fixed') {
     const fixedUnit = unit as FixedPricingUnit;
@@ -333,28 +333,28 @@ export const useModelDetailPanel = ({
     if (pricingMode === 'image' && typeof displayPricing.approximatePricePerImage === 'number') {
       const amount = isCreditPricing
         ? formatBrandingCreditRate(displayPricing.approximatePricePerImage, 'image')
-        : formatPriceByCurrency(displayPricing.approximatePricePerImage, currency);
+        : formatPriceInCurrency(displayPricing.approximatePricePerImage, currency);
       return t(
         isCreditPricing
           ? 'ModelSwitchPanel.detail.pricing.credits.perImage'
           : 'ModelSwitchPanel.detail.pricing.perImage',
         {
           amount,
-          defaultValue: isCreditPricing ? '~ {{amount}} credits / image' : '~ ${{amount}} / image',
+          defaultValue: isCreditPricing ? '~ {{amount}} credits / image' : '~ {{amount}} / image',
         },
       );
     }
     if (pricingMode === 'video' && typeof displayPricing.approximatePricePerVideo === 'number') {
       const amount = isCreditPricing
         ? formatBrandingCreditRate(displayPricing.approximatePricePerVideo)
-        : formatPriceByCurrency(displayPricing.approximatePricePerVideo, currency);
+        : formatPriceInCurrency(displayPricing.approximatePricePerVideo, currency);
       return t(
         isCreditPricing
           ? 'ModelSwitchPanel.detail.pricing.credits.perVideo'
           : 'ModelSwitchPanel.detail.pricing.perVideo',
         {
           amount,
-          defaultValue: isCreditPricing ? '~ {{amount}} credits / video' : '~ ${{amount}} / video',
+          defaultValue: isCreditPricing ? '~ {{amount}} credits / video' : '~ {{amount}} / video',
         },
       );
     }

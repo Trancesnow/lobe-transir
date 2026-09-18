@@ -72,7 +72,7 @@ const uploadMcpMedia = async ({
   const fileExtension = getFileExtensionFromMimeType(mimeType, mediaType);
   const pathname = `${fileEnv.NEXT_PUBLIC_S3_FILE_PATH}/mcp/${config.pathnameSegment}/${today}/${nanoid()}.${fileExtension}`;
 
-  return fileService.uploadBase64(base64Data, pathname, { fileType: mimeType });
+  return fileService.uploadBase64(base64Data, pathname, { ephemeral: true, fileType: mimeType });
 };
 
 /**

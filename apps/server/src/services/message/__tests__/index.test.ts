@@ -1,19 +1,32 @@
 import { type LobeChatDatabase } from '@lobechat/database';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DocumentModel } from '@/database/models/document';
+import { FileModel } from '@/database/models/file';
 import { MessageModel } from '@/database/models/message';
+import { DocumentService } from '@/server/services/document';
 import { FileService } from '@/server/services/file';
 
 import { MessageService } from '../index';
 
+vi.mock('@/config/db', () => ({
+  serverDBEnv: { REMOVE_GLOBAL_FILE: false },
+}));
+
 vi.mock('@/database/models/message');
+vi.mock('@/database/models/file');
+vi.mock('@/database/models/document');
 vi.mock('@/server/services/file');
+vi.mock('@/server/services/document');
 
 describe('MessageService', () => {
   let messageService: MessageService;
   let mockDB: LobeChatDatabase;
   let mockMessageModel: MessageModel;
   let mockFileService: FileService;
+  let mockFileModel: FileModel;
+  let mockDocumentModel: DocumentModel;
+  let mockDocumentService: DocumentService;
   const userId = 'test-user-id';
 
   beforeEach(() => {
@@ -22,6 +35,11 @@ describe('MessageService', () => {
       create: vi.fn(),
       deleteMessage: vi.fn(),
       deleteMessages: vi.fn(),
+      findById: vi.fn().mockResolvedValue(undefined),
+      findDocumentIdsReferencedOutsideMessages: vi.fn().mockResolvedValue([]),
+      findFileIdsByMessageIds: vi.fn().mockResolvedValue([]),
+      findFileIdsReferencedOutsideMessages: vi.fn().mockResolvedValue([]),
+      findPluginStatesByToolCallIds: vi.fn().mockResolvedValue([]),
       query: vi.fn(),
       update: vi.fn(),
       updateMessagePlugin: vi.fn(),
@@ -35,6 +53,20 @@ describe('MessageService', () => {
       getFullFileUrl: vi.fn().mockImplementation(function (path) {
         return Promise.resolve(`/files${path}`);
       }),
+      deleteFiles: vi.fn().mockResolvedValue(undefined),
+    } as any;
+
+    mockFileModel = {
+      deleteMany: vi.fn().mockResolvedValue([]),
+      findByIds: vi.fn().mockResolvedValue([]),
+    } as any;
+
+    mockDocumentModel = {
+      findByIds: vi.fn().mockResolvedValue([]),
+    } as any;
+
+    mockDocumentService = {
+      deleteDocument: vi.fn().mockResolvedValue(undefined),
     } as any;
 
     // Mock constructors
@@ -43,6 +75,15 @@ describe('MessageService', () => {
     });
     vi.mocked(FileService).mockImplementation(function () {
       return mockFileService;
+    });
+    vi.mocked(FileModel).mockImplementation(function () {
+      return mockFileModel;
+    });
+    vi.mocked(DocumentModel).mockImplementation(function () {
+      return mockDocumentModel;
+    });
+    vi.mocked(DocumentService).mockImplementation(function () {
+      return mockDocumentService;
     });
 
     messageService = new MessageService(mockDB, userId);
@@ -91,6 +132,99 @@ describe('MessageService', () => {
         }),
       );
       expect(result).toEqual({ messages: mockMessages, success: true });
+    });
+  });
+
+  describe('removeMessage ephemeral cleanup', () => {
+    it('should delete ephemeral files referenced only by the deleted message', async () => {
+      vi.mocked(mockMessageModel.findById).mockResolvedValue({ id: 'msg-1', tools: [] } as any);
+      vi.mocked(mockMessageModel.findFileIdsByMessageIds).mockResolvedValue(['file-1']);
+      vi.mocked(mockFileModel.findByIds).mockResolvedValue([
+        { id: 'file-1', metadata: { ephemeral: true }, url: 's3://file-1' },
+      ] as any);
+      vi.mocked(mockFileModel.deleteMany).mockResolvedValue([{ url: 's3://file-1' }] as any);
+
+      await messageService.removeMessage('msg-1');
+
+      expect(mockFileModel.deleteMany).toHaveBeenCalledWith(['file-1'], false);
+      expect(mockFileService.deleteFiles).toHaveBeenCalledWith(['s3://file-1']);
+      expect(mockMessageModel.deleteMessage).toHaveBeenCalledWith('msg-1');
+    });
+
+    it('should keep ephemeral files still referenced by other messages', async () => {
+      vi.mocked(mockMessageModel.findById).mockResolvedValue({ id: 'msg-1', tools: [] } as any);
+      vi.mocked(mockMessageModel.findFileIdsByMessageIds).mockResolvedValue(['file-1']);
+      vi.mocked(mockMessageModel.findFileIdsReferencedOutsideMessages).mockResolvedValue([
+        'file-1',
+      ]);
+      vi.mocked(mockFileModel.findByIds).mockResolvedValue([
+        { id: 'file-1', metadata: { ephemeral: true }, url: 's3://file-1' },
+      ] as any);
+
+      await messageService.removeMessage('msg-1');
+
+      expect(mockFileModel.deleteMany).not.toHaveBeenCalled();
+      expect(mockFileService.deleteFiles).not.toHaveBeenCalled();
+      expect(mockMessageModel.deleteMessage).toHaveBeenCalledWith('msg-1');
+    });
+
+    it('should not touch non-ephemeral files', async () => {
+      vi.mocked(mockMessageModel.findById).mockResolvedValue({ id: 'msg-1', tools: [] } as any);
+      vi.mocked(mockMessageModel.findFileIdsByMessageIds).mockResolvedValue(['file-1']);
+      vi.mocked(mockFileModel.findByIds).mockResolvedValue([
+        { id: 'file-1', metadata: {}, url: 's3://file-1' },
+      ] as any);
+
+      await messageService.removeMessage('msg-1');
+
+      expect(mockFileModel.deleteMany).not.toHaveBeenCalled();
+      expect(mockMessageModel.deleteMessage).toHaveBeenCalledWith('msg-1');
+    });
+
+    it('should delete ephemeral documents from tool cards with no remaining references', async () => {
+      vi.mocked(mockMessageModel.findById).mockResolvedValue({
+        id: 'msg-1',
+        tools: [{ id: 'tool-call-1' }],
+      } as any);
+      vi.mocked(mockMessageModel.findPluginStatesByToolCallIds).mockResolvedValue([
+        { id: 'tool-msg-1', state: { documentId: 'doc-1' } },
+      ] as any);
+      vi.mocked(mockDocumentModel.findByIds).mockResolvedValue([
+        { id: 'doc-1', metadata: { ephemeral: true } },
+      ] as any);
+
+      await messageService.removeMessage('msg-1');
+
+      expect(mockDocumentService.deleteDocument).toHaveBeenCalledWith('doc-1');
+      expect(mockMessageModel.deleteMessage).toHaveBeenCalledWith('msg-1');
+    });
+
+    it('should keep ephemeral documents still referenced by other messages', async () => {
+      vi.mocked(mockMessageModel.findById).mockResolvedValue({
+        id: 'msg-1',
+        tools: [{ id: 'tool-call-1' }],
+      } as any);
+      vi.mocked(mockMessageModel.findPluginStatesByToolCallIds).mockResolvedValue([
+        { id: 'tool-msg-1', state: { documentId: 'doc-1' } },
+      ] as any);
+      vi.mocked(mockMessageModel.findDocumentIdsReferencedOutsideMessages).mockResolvedValue([
+        'doc-1',
+      ]);
+      vi.mocked(mockDocumentModel.findByIds).mockResolvedValue([]);
+
+      await messageService.removeMessage('msg-1');
+
+      expect(mockDocumentService.deleteDocument).not.toHaveBeenCalled();
+      expect(mockMessageModel.deleteMessage).toHaveBeenCalledWith('msg-1');
+    });
+
+    it('should skip cleanup entirely when the message does not exist', async () => {
+      vi.mocked(mockMessageModel.findById).mockResolvedValue(undefined);
+
+      await messageService.removeMessage('missing');
+
+      expect(mockMessageModel.findFileIdsByMessageIds).not.toHaveBeenCalled();
+      expect(mockMessageModel.deleteMessage).toHaveBeenCalledWith('missing');
     });
   });
 

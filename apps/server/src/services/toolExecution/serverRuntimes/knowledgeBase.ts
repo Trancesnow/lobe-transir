@@ -144,6 +144,7 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
           const doc = await documentService.createDocument({
             content,
             editorData: {},
+            ephemeral: true,
             fileType,
             knowledgeBaseId,
             parentId,

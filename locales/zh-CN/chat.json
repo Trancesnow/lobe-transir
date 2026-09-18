@@ -1451,6 +1451,7 @@
   "runtimeEnv.mode.noneDesc": "禁用运行时环境",
   "runtimeEnv.selectMode": "选择运行环境",
   "runtimeEnv.title": "运行环境",
+  "saveToResource": "保存到资源",
   "search.grounding.imageSearchQueries": "图片搜索关键词",
   "search.grounding.imageTitle": "找到 {{count}} 张图片",
   "search.grounding.searchQueries": "搜索关键词",

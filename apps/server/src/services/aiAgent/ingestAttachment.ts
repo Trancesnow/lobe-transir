@@ -200,6 +200,9 @@ export async function ingestAttachment(
     mimeType,
     pathname,
     quotaCheck,
+    {
+      ephemeral: true,
+    },
   );
 
   // 5. Resolve access URL for images, videos and audio.

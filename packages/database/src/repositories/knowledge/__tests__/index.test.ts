@@ -227,6 +227,34 @@ describe('KnowledgeRepo', () => {
       expect(result.every((item) => item.id !== 'other-doc')).toBe(true);
     });
 
+    it('should exclude ephemeral files and documents from listings', async () => {
+      await serverDB.insert(files).values({
+        id: 'ephemeral-file',
+        userId,
+        name: 'generated-image.png',
+        fileType: 'image/png',
+        metadata: { ephemeral: true },
+        size: 100,
+        url: 'https://example.com/generated.png',
+      });
+      await serverDB.insert(documents).values({
+        id: 'ephemeral-doc',
+        userId,
+        title: 'Agent Note',
+        fileType: 'custom/note',
+        metadata: { ephemeral: true },
+        sourceType: 'topic',
+        source: 'internal://note/ephemeral-doc',
+        totalCharCount: 10,
+        totalLineCount: 1,
+      });
+
+      const result = await knowledgeRepo.query();
+
+      expect(result.every((item) => item.id !== 'ephemeral-file')).toBe(true);
+      expect(result.every((item) => item.id !== 'ephemeral-doc')).toBe(true);
+    });
+
     it('should omit document bodies from summary queries', async () => {
       const content = `Preview body ${'x'.repeat(RESOURCE_CONTENT_PREVIEW_SOURCE_LENGTH)}`;
       await serverDB.insert(documents).values({
@@ -551,6 +579,41 @@ describe('KnowledgeRepo', () => {
         id: 'recent-doc-1',
         name: 'Recent Note',
       });
+    });
+
+    it('should exclude ephemeral files and documents from recent listings', async () => {
+      await serverDB.insert(files).values({
+        id: 'recent-ephemeral-file',
+        userId,
+        name: 'recent-generated.png',
+        fileType: 'image/png',
+        metadata: { ephemeral: true },
+        size: 100,
+        url: 'https://example.com/recent-generated.png',
+        updatedAt: new Date('2024-01-12T10:00:00Z'),
+      });
+      await serverDB.insert(documents).values({
+        id: 'recent-ephemeral-doc',
+        userId,
+        title: 'Recent Agent Note',
+        fileType: 'custom/note',
+        metadata: { ephemeral: true },
+        sourceType: 'topic',
+        source: 'internal://note/recent-ephemeral-doc',
+        totalCharCount: 10,
+        totalLineCount: 1,
+        updatedAt: new Date('2024-01-13T10:00:00Z'),
+      });
+
+      const all = await knowledgeRepo.queryRecent();
+      expect(all.every((item) => item.id !== 'recent-ephemeral-file')).toBe(true);
+      expect(all.every((item) => item.id !== 'recent-ephemeral-doc')).toBe(true);
+
+      const filesOnly = await knowledgeRepo.queryRecent(10, 'file');
+      expect(filesOnly.every((item) => item.id !== 'recent-ephemeral-file')).toBe(true);
+
+      const pagesOnly = await knowledgeRepo.queryRecent(10, 'page');
+      expect(pagesOnly.every((item) => item.id !== 'recent-ephemeral-doc')).toBe(true);
     });
   });
 

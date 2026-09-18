@@ -110,7 +110,7 @@ describe('contentProcessor', () => {
       expect(mockFileService.uploadBase64).toHaveBeenCalledWith(
         'iVBORw0KGgoAAAANSUhEUg==',
         expect.stringContaining('mcp/images/'),
-        { fileType: 'image/png' },
+        { fileType: 'image/png', ephemeral: true },
       );
     });
 
@@ -136,7 +136,7 @@ describe('contentProcessor', () => {
       expect(mockFileService.uploadBase64).toHaveBeenCalledWith(
         'base64audiodata==',
         expect.stringContaining('mcp/audio/'),
-        { fileType: 'audio/mp3' },
+        { fileType: 'audio/mp3', ephemeral: true },
       );
     });
 
@@ -168,7 +168,7 @@ describe('contentProcessor', () => {
       expect(mockFileService.uploadBase64).toHaveBeenCalledWith(
         'resourceImageBase64==',
         expect.stringMatching(/mcp\/images\/.*\.png$/),
-        { fileType: 'image/png' },
+        { fileType: 'image/png', ephemeral: true },
       );
     });
 
@@ -200,7 +200,7 @@ describe('contentProcessor', () => {
       expect(mockFileService.uploadBase64).toHaveBeenCalledWith(
         'resourceAudioBase64==',
         expect.stringMatching(/mcp\/audio\/.*\.mp3$/),
-        { fileType: 'audio/mpeg' },
+        { fileType: 'audio/mpeg', ephemeral: true },
       );
     });
 
@@ -227,7 +227,7 @@ describe('contentProcessor', () => {
       expect(mockFileService.uploadBase64).toHaveBeenCalledWith(
         'resourceSvgBase64==',
         expect.stringMatching(/mcp\/images\/.*\.svg$/),
-        { fileType: 'image/svg+xml' },
+        { fileType: 'image/svg+xml', ephemeral: true },
       );
     });
 

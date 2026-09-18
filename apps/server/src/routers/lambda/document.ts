@@ -263,6 +263,35 @@ export const documentRouter = router({
       return createdDocuments;
     }),
 
+  promoteDocument: documentProcedure
+    .use(withScopedPermission('document:update'))
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const document = await ctx.documentModel.findById(input.id);
+      if (!document) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+
+      const metadata = (document.metadata ?? {}) as Record<string, unknown>;
+      // 幂等：非临时文档直接成功返回
+      if (metadata.ephemeral === true) {
+        const rest = { ...metadata };
+        delete rest.ephemeral;
+        await ctx.documentModel.update(input.id, { metadata: rest });
+      }
+
+      // 建文档时同步生成的 file 记录若仍为临时，一并提升
+      if (document.fileId) {
+        const file = await ctx.fileModel.findById(document.fileId);
+        const fileMetadata = (file?.metadata ?? null) as Record<string, unknown> | null;
+        if (file && fileMetadata?.ephemeral === true) {
+          const rest = { ...fileMetadata };
+          delete rest.ephemeral;
+          await ctx.fileModel.update(document.fileId, { metadata: rest } as any);
+        }
+      }
+
+      return { success: true };
+    }),
+
   deleteDocument: documentProcedure
     .use(withScopedPermission('document:delete'))
     .input(z.object({ id: z.string() }))

@@ -83,7 +83,7 @@ const storeScreenshot = async (
     const { fileId, url } = await fileService.uploadBase64(
       base64Data,
       `files/${date}/browser-screenshot-${Date.now()}.${ext}`,
-      { fileType: mediaType },
+      { ephemeral: true, fileType: mediaType },
     );
 
     // `dataUrl` carried both the model's copy and the chat renderer's `src`.

@@ -1,6 +1,7 @@
 import { type LobeChatDatabase } from '@lobechat/database';
 import { CompressionRepository } from '@lobechat/database';
 import {
+  type ChatToolPayload,
   type CreateMessageParams,
   type HeterogeneousToolStateSnapshot,
   type QueryMessageParams,
@@ -9,8 +10,12 @@ import {
 } from '@lobechat/types';
 import { createTimingHelpers, getDurationMs } from '@lobechat/utils';
 
+import { serverDBEnv } from '@/config/db';
+import { DocumentModel } from '@/database/models/document';
+import { FileModel } from '@/database/models/file';
 import { MessageModel } from '@/database/models/message';
 
+import { DocumentService } from '../document';
 import { FileService } from '../file';
 
 interface QueryOptions {
@@ -94,11 +99,17 @@ export class MessageService {
   private messageModel: MessageModel;
   private fileService: FileService;
   private compressionRepository: CompressionRepository;
+  private documentModel: DocumentModel;
+  private documentService: DocumentService;
+  private fileModel: FileModel;
 
   constructor(db: LobeChatDatabase, userId: string, workspaceId?: string) {
     this.messageModel = new MessageModel(db, userId, workspaceId);
     this.fileService = new FileService(db, userId, workspaceId);
     this.compressionRepository = new CompressionRepository(db, userId, workspaceId);
+    this.documentModel = new DocumentModel(db, userId, workspaceId);
+    this.documentService = new DocumentService(db, userId, workspaceId);
+    this.fileModel = new FileModel(db, userId, workspaceId);
   }
 
   /**
@@ -284,10 +295,79 @@ export class MessageService {
   /**
    * Remove single message with optional message list return
    * Pattern: delete + conditional query
+   *
+   * Ephemeral attachments die with the message: files referenced only by this
+   * message (and its tool messages) are removed from DB and storage, as are
+   * ephemeral documents rendered by its tool cards.
    */
   async removeMessage(id: string, options?: QueryOptions) {
+    await this.cleanupEphemeralArtifacts(id);
     await this.messageModel.deleteMessage(id);
     return this.queryWithSuccess(options);
+  }
+
+  /**
+   * Before a message is deleted, collect the ephemeral files/documents it
+   * references and delete those with no remaining references from other
+   * messages of the same caller.
+   */
+  private async cleanupEphemeralArtifacts(id: string) {
+    const message = await this.messageModel.findById(id);
+    if (!message) return;
+
+    // Tool messages carrying this message's tool payloads are cascade-deleted
+    // together with it, so their references must not block cleanup either.
+    const toolCallIds = ((message.tools as ChatToolPayload[] | null) ?? [])
+      .map((tool) => tool.id)
+      .filter(Boolean);
+    const pluginRows = await this.messageModel.findPluginStatesByToolCallIds(toolCallIds);
+    const relatedMessageIds = pluginRows.map((row) => row.id);
+    const deletingMessageIds = [id, ...relatedMessageIds];
+
+    const documentIds = [
+      ...new Set(
+        pluginRows
+          .map((row) => (row.state as { documentId?: unknown } | null)?.documentId)
+          .filter((value): value is string => typeof value === 'string'),
+      ),
+    ];
+
+    const fileIds = await this.messageModel.findFileIdsByMessageIds(deletingMessageIds);
+
+    const [referencedFileIds, referencedDocumentIds] = await Promise.all([
+      this.messageModel.findFileIdsReferencedOutsideMessages(fileIds, deletingMessageIds),
+      this.messageModel.findDocumentIdsReferencedOutsideMessages(documentIds, deletingMessageIds),
+    ]);
+
+    const ephemeralFiles = (await this.fileModel.findByIds([...new Set(fileIds)])).filter(
+      (file) => (file.metadata as Record<string, unknown> | null)?.ephemeral === true,
+    );
+
+    const deletableFileIds = ephemeralFiles
+      .map((file) => file.id)
+      .filter((fileId) => !referencedFileIds.includes(fileId));
+
+    if (deletableFileIds.length > 0) {
+      const removed = await this.fileModel.deleteMany(
+        deletableFileIds,
+        serverDBEnv.REMOVE_GLOBAL_FILE,
+      );
+      if (removed && removed.length > 0) {
+        await this.fileService.deleteFiles(removed.map((file) => file.url!));
+      }
+    }
+
+    const ephemeralDocuments = (
+      await this.documentModel.findByIds(
+        documentIds.filter((documentId) => !referencedDocumentIds.includes(documentId)),
+      )
+    ).filter((doc) => (doc.metadata as Record<string, unknown> | null)?.ephemeral === true);
+
+    for (const doc of ephemeralDocuments) {
+      // deleteDocument also removes the document's own (ephemeral) file record
+      // and its storage object.
+      await this.documentService.deleteDocument(doc.id);
+    }
   }
 
   /**

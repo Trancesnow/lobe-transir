@@ -58,7 +58,7 @@ describe('browserRuntime', () => {
       expect(mockUploadBase64).toHaveBeenCalledWith(
         'QUJD',
         expect.stringMatching(/^files\/\d{4}-\d{2}-\d{2}\/browser-screenshot-\d+\.jpg$/),
-        { fileType: 'image/jpeg' },
+        { ephemeral: true, fileType: 'image/jpeg' },
       );
       // `state` reaches the model as image parts, not text, so the id has to be
       // named in `content` or a builder can see the shot without being able to
