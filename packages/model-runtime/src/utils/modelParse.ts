@@ -6,6 +6,7 @@ import type {
   AiModelType,
   ExtendParamsType,
   LobeDefaultAiModelListItem,
+  ModelPriceCurrency,
 } from 'model-bank';
 import { AiModelTypeSchema, ModelProvider } from 'model-bank';
 
@@ -570,6 +571,7 @@ const processModelCard = (
 
   const formatPricing = (pricing?: {
     cachedInput?: number;
+    currency?: ModelPriceCurrency;
     input?: number;
     output?: number;
     units?: any[];
@@ -577,7 +579,10 @@ const processModelCard = (
   }) => {
     if (!pricing || typeof pricing !== 'object') return undefined;
     if (Array.isArray(pricing.units)) {
-      return { units: pricing.units };
+      return {
+        ...(pricing.currency && { currency: pricing.currency }),
+        units: pricing.units,
+      };
     }
     const { input, output, cachedInput, writeCacheInput } = pricing;
     if (

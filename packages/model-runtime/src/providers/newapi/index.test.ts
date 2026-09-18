@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatStreamPayload } from '../../types/chat';
 import * as modelParseModule from '../../utils/modelParse';
 import type { NewAPIModelCard, NewAPIPricing } from './index';
-import { LobeNewAPIAI, params } from './index';
+import { LobeNewAPIAI, params, parseBillingExpr } from './index';
 
 // Mock external dependencies
 vi.mock('../../utils/modelParse');
@@ -1535,6 +1535,300 @@ describe('NewAPI Runtime - 100% Branch Coverage', () => {
         baseURL: 'https://custom.com',
       });
       expect(instance).toBeDefined();
+    });
+  });
+
+  describe('parseBillingExpr - tiered_expr pricing', () => {
+    // 来自真实 new-api 实例的 billing_expr（模型 qwen3.7-flash）
+    const THREE_TIER_EXPR =
+      'len <= 32000 ? tier("short", p * 0.027397260274 + c * 0.109589041096 + cr * 0.002739726027) : len <= 128000 ? tier("mid", p * 0.082191780822 + c * 0.328767123288 + cr * 0.008219178082) : tier("long", p * 0.164383561644 + c * 0.657534246575 + cr * 0.016438356164)';
+
+    // 来自真实 new-api 实例的 billing_expr（模型 gpt-5.6-sol）
+    const TWO_TIER_WITH_CACHE_WRITE_EXPR =
+      'len <= 200000 ? tier("standard", p * 0.123287671233 + c * 0.739726027397 + cr * 0.002219178082 + cc * 0.027739726027) : tier("long_context", p * 0.246575342466 + c * 1.109589041096 + cr * 0.024657534247 + cc * 0.308219178082)';
+
+    it('should parse a 3-tier expression into tiered units (coefficients x2 = $/1M tokens)', () => {
+      const pricing = parseBillingExpr(THREE_TIER_EXPR);
+
+      expect(pricing).toBeDefined();
+      expect(pricing!.currency).toBe('USD');
+
+      const textInput = pricing!.units.find((u) => u.name === 'textInput');
+      expect(textInput).toMatchObject({
+        strategy: 'tiered',
+        tiers: [
+          { rate: 0.054794520548, upTo: 32000 },
+          { rate: 0.164383561644, upTo: 128000 },
+          { rate: 0.328767123288, upTo: 'infinity' },
+        ],
+        unit: 'millionTokens',
+      });
+
+      const textOutput = pricing!.units.find((u) => u.name === 'textOutput');
+      expect(textOutput).toMatchObject({
+        tiers: [
+          { rate: 0.219178082192, upTo: 32000 },
+          { rate: 0.657534246576, upTo: 128000 },
+          { rate: 1.31506849315, upTo: 'infinity' },
+        ],
+      });
+
+      const cacheRead = pricing!.units.find((u) => u.name === 'textInput_cacheRead');
+      expect(cacheRead).toMatchObject({
+        tiers: [
+          { rate: 0.005479452054, upTo: 32000 },
+          { rate: 0.016438356164, upTo: 128000 },
+          { rate: 0.032876712328, upTo: 'infinity' },
+        ],
+      });
+
+      expect(pricing!.units.find((u) => u.name === 'textInput_cacheWrite')).toBeUndefined();
+    });
+
+    it('should parse a 2-tier expression with cache write (cc) term', () => {
+      const pricing = parseBillingExpr(TWO_TIER_WITH_CACHE_WRITE_EXPR);
+
+      expect(pricing).toBeDefined();
+
+      const textInput = pricing!.units.find((u) => u.name === 'textInput');
+      expect(textInput).toMatchObject({
+        tiers: [
+          { rate: 0.246575342466, upTo: 200000 },
+          { rate: 0.493150684932, upTo: 'infinity' },
+        ],
+      });
+
+      const cacheWrite = pricing!.units.find((u) => u.name === 'textInput_cacheWrite');
+      expect(cacheWrite).toMatchObject({
+        tiers: [
+          { rate: 0.055479452054, upTo: 200000 },
+          { rate: 0.616438356164, upTo: 'infinity' },
+        ],
+      });
+
+      expect(pricing!.units).toHaveLength(4);
+    });
+
+    it('should return undefined when tier count does not match threshold count', () => {
+      // 2 个阈值但只有 2 段（预期 3 段）
+      const mismatched =
+        'len <= 32000 ? tier("short", p * 0.027 + c * 0.11) : len <= 128000 ? tier("mid", p * 0.082 + c * 0.33)';
+
+      expect(parseBillingExpr(mismatched)).toBeUndefined();
+    });
+
+    it('should return undefined for a single-tier expression', () => {
+      expect(parseBillingExpr('tier("only", p * 0.027 + c * 0.11)')).toBeUndefined();
+    });
+
+    it('should return undefined for non-expression garbage', () => {
+      expect(parseBillingExpr('not an expression at all')).toBeUndefined();
+    });
+
+    it('should use tiered pricing from billing_expr when billing_mode is tiered_expr', async () => {
+      const mockClient = {
+        apiKey: 'test-key',
+        baseURL: 'https://api.newapi.com/v1',
+        models: {
+          list: vi.fn().mockResolvedValue({
+            data: [{ created: 123, id: 'qwen3.7-flash', object: 'model', owned_by: 'qwen' }],
+          }),
+        },
+      };
+
+      mockFetch.mockResolvedValue({
+        json: async () => ({
+          data: [
+            {
+              billing_expr: THREE_TIER_EXPR,
+              billing_mode: 'tiered_expr',
+              completion_ratio: 1,
+              enable_groups: ['default'],
+              model_name: 'qwen3.7-flash',
+              // new-api 对分段计费模型随附的兜底比率，必须忽略
+              model_ratio: 37.5,
+              quota_type: 0,
+            },
+          ],
+          success: true,
+        }),
+        ok: true,
+      });
+
+      mockProcessMultiProviderModelList.mockImplementation((models) => models);
+
+      const result = await params.models({ client: mockClient as any });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].pricing?.units).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'textInput',
+            strategy: 'tiered',
+            tiers: expect.arrayContaining([{ rate: 0.054794520548, upTo: 32000 }]),
+          }),
+        ]),
+      );
+    });
+
+    it('should fall back to ratio pricing when billing_expr cannot be parsed', async () => {
+      const mockClient = {
+        apiKey: 'test-key',
+        baseURL: 'https://api.newapi.com/v1',
+        models: {
+          list: vi.fn().mockResolvedValue({
+            data: [{ created: 123, id: 'broken-model', object: 'model', owned_by: 'openai' }],
+          }),
+        },
+      };
+
+      mockFetch.mockResolvedValue({
+        json: async () => ({
+          data: [
+            {
+              billing_expr: 'garbage without tiers',
+              billing_mode: 'tiered_expr',
+              completion_ratio: 2,
+              enable_groups: ['default'],
+              model_name: 'broken-model',
+              model_ratio: 12,
+              quota_type: 0,
+            },
+          ],
+          success: true,
+        }),
+        ok: true,
+      });
+
+      mockProcessMultiProviderModelList.mockImplementation((models) => models);
+
+      const result = await params.models({ client: mockClient as any });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].pricing?.units).toEqual([
+        { name: 'textInput', rate: 24, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 48, strategy: 'fixed', unit: 'millionTokens' },
+      ]);
+    });
+
+    it('should apply rate multiplier and currency for CNY sites', () => {
+      const pricing = parseBillingExpr(THREE_TIER_EXPR, 7.3, 'CNY');
+
+      expect(pricing).toBeDefined();
+      expect(pricing!.currency).toBe('CNY');
+
+      const textInput = pricing!.units.find((u) => u.name === 'textInput');
+      expect(textInput).toMatchObject({
+        tiers: [
+          { rate: expect.closeTo(0.027397260274 * 2 * 7.3, 12), upTo: 32000 },
+          { rate: expect.closeTo(0.082191780822 * 2 * 7.3, 12), upTo: 128000 },
+          { rate: expect.closeTo(0.164383561644 * 2 * 7.3, 12), upTo: 'infinity' },
+        ],
+      });
+    });
+
+    it('should convert ratio pricing to CNY when the site currency is CNY', async () => {
+      const mockClient = {
+        apiKey: 'test-key',
+        baseURL: 'https://api.newapi.com/v1',
+        models: {
+          list: vi.fn().mockResolvedValue({
+            data: [{ created: 123, id: 'qwen3.8-flash', object: 'model', owned_by: 'qwen' }],
+          }),
+        },
+      };
+
+      mockFetch.mockImplementation(async (url: string) => {
+        if (String(url).includes('/api/status')) {
+          return {
+            json: async () => ({
+              data: { quota_display_type: 'CNY', usd_exchange_rate: 7.3 },
+              success: true,
+            }),
+            ok: true,
+          };
+        }
+        return {
+          json: async () => ({
+            data: [
+              {
+                completion_ratio: 3.375,
+                enable_groups: ['default'],
+                model_name: 'qwen3.8-flash',
+                model_ratio: 0.054794520548,
+                quota_type: 0,
+              },
+            ],
+            success: true,
+          }),
+          ok: true,
+        };
+      });
+
+      mockProcessMultiProviderModelList.mockImplementation((models) => models);
+
+      const result = await params.models({ client: mockClient as any });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].pricing?.currency).toBe('CNY');
+      expect(result[0].pricing?.units).toEqual([
+        {
+          name: 'textInput',
+          rate: expect.closeTo(0.054794520548 * 2 * 7.3, 12),
+          strategy: 'fixed',
+          unit: 'millionTokens',
+        },
+        {
+          name: 'textOutput',
+          rate: expect.closeTo(0.054794520548 * 2 * 7.3 * 3.375, 12),
+          strategy: 'fixed',
+          unit: 'millionTokens',
+        },
+      ]);
+    });
+
+    it('should keep USD pricing when the status endpoint fails', async () => {
+      const mockClient = {
+        apiKey: 'test-key',
+        baseURL: 'https://api.newapi.com/v1',
+        models: {
+          list: vi.fn().mockResolvedValue({
+            data: [{ created: 123, id: 'model-a', object: 'model', owned_by: 'openai' }],
+          }),
+        },
+      };
+
+      mockFetch.mockImplementation(async (url: string) => {
+        if (String(url).includes('/api/status')) {
+          return { ok: false };
+        }
+        return {
+          json: async () => ({
+            data: [
+              {
+                completion_ratio: 2,
+                enable_groups: ['default'],
+                model_name: 'model-a',
+                model_ratio: 12,
+                quota_type: 0,
+              },
+            ],
+            success: true,
+          }),
+          ok: true,
+        };
+      });
+
+      mockProcessMultiProviderModelList.mockImplementation((models) => models);
+
+      const result = await params.models({ client: mockClient as any });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].pricing?.currency).toBeUndefined();
+      expect(result[0].pricing?.units).toEqual([
+        { name: 'textInput', rate: 24, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 48, strategy: 'fixed', unit: 'millionTokens' },
+      ]);
     });
   });
 });

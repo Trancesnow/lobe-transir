@@ -1,3 +1,4 @@
+import type { ModelPriceCurrency, Pricing, PricingUnitName } from 'model-bank';
 import { LOBE_DEFAULT_MODEL_LIST, ModelProvider } from 'model-bank';
 import urlJoin from 'url-join';
 
@@ -16,6 +17,8 @@ export interface NewAPIModelCard {
 }
 
 export interface NewAPIPricing {
+  billing_expr?: string;
+  billing_mode?: string;
   completion_ratio?: number;
   description?: string;
   enable_groups: string[];
@@ -71,6 +74,109 @@ const fetchPricing = async (
   }
 };
 
+export interface NewAPISiteStatus {
+  custom_currency_exchange_rate?: number;
+  custom_currency_symbol?: string;
+  /** 站点额度展示币种：'USD' | 'CNY' | 'CUSTOM' | 'TOKENS' */
+  quota_display_type?: string;
+  usd_exchange_rate?: number;
+}
+
+const fetchSiteStatus = async (
+  baseURL: string,
+  providerId = ModelProvider.NewAPI,
+): Promise<NewAPISiteStatus | null> => {
+  try {
+    const res = isBrowser()
+      ? await fetch(`/webapi/models/${encodeURIComponent(providerId)}/status`)
+      : await fetch(`${baseURL}/api/status`, {
+          headers: { Accept: 'application/json; charset=utf-8' },
+        });
+
+    if (!res.ok) return null;
+
+    const body = await res.json();
+    return body?.success && body?.data ? (body.data as NewAPISiteStatus) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * new-api 内部以美元计价额度存储价格；站点币种为 CNY 时，
+ * new-api 面板按 usd_exchange_rate 折算展示。此处施加同样折算，
+ * 使 LobeChat 显示的定价与 new-api 面板完全一致。
+ */
+const resolveCurrency = (
+  status: NewAPISiteStatus | null,
+): { currency?: ModelPriceCurrency; rateMultiplier: number } => {
+  if (
+    status?.quota_display_type === 'CNY' &&
+    typeof status.usd_exchange_rate === 'number' &&
+    status.usd_exchange_rate > 0
+  ) {
+    return { currency: 'CNY', rateMultiplier: status.usd_exchange_rate };
+  }
+
+  return { rateMultiplier: 1 };
+};
+
+/**
+ * 将 new-api 的分段计费表达式解析为 LobeChat 的分层定价单位。
+ *
+ * 表达式形态（2~3 段，cr/cc 项可选）：
+ * `len <= 32000 ? tier("short", p * 0.027 + c * 0.11 + cr * 0.003) : ... : tier("long", ...)`
+ * - p  -> textInput, c -> textOutput, cr -> textInput_cacheRead, cc -> textInput_cacheWrite
+ * - 系数与 model_ratio 同单位（$0.002/1K tokens），故 rate = 系数 * 2，换算为 $/1M tokens
+ * - rateMultiplier 施加站点币种折算（如站点用 CNY 时的 usd_exchange_rate）
+ *
+ * 表达式不匹配预期形态时返回 undefined，调用方回退到比率计价。
+ */
+export const parseBillingExpr = (
+  expr: string,
+  rateMultiplier = 1,
+  currency: ModelPriceCurrency = 'USD',
+): Pricing | undefined => {
+  const thresholds = [...expr.matchAll(/len\s*<=\s*(\d+)/g)].map((m) => Number(m[1]));
+  const tierBodies = [...expr.matchAll(/tier\(\s*"[^"]*"\s*,([^)]*)\)/g)].map((m) => m[1]);
+
+  if (tierBodies.length < 2 || tierBodies.length !== thresholds.length + 1) return undefined;
+
+  const variableToUnit: Record<string, PricingUnitName> = {
+    c: 'textOutput',
+    cc: 'textInput_cacheWrite',
+    cr: 'textInput_cacheRead',
+    p: 'textInput',
+  };
+
+  const tiersByUnit = new Map<PricingUnitName, { rate: number; upTo: number | 'infinity' }[]>();
+
+  tierBodies.forEach((body, index) => {
+    const upTo: number | 'infinity' = index < thresholds.length ? thresholds[index] : 'infinity';
+
+    for (const match of body.matchAll(/([a-z]+)\s*\*\s*([\d.eE+-]+)/g)) {
+      const unitName = variableToUnit[match[1]];
+      if (!unitName) continue;
+
+      const tiers = tiersByUnit.get(unitName) ?? [];
+      tiers.push({ rate: Number(match[2]) * 2 * rateMultiplier, upTo });
+      tiersByUnit.set(unitName, tiers);
+    }
+  });
+
+  if (!tiersByUnit.has('textInput') && !tiersByUnit.has('textOutput')) return undefined;
+
+  return {
+    currency,
+    units: [...tiersByUnit.entries()].map(([name, tiers]) => ({
+      name,
+      strategy: 'tiered' as const,
+      tiers,
+      unit: 'millionTokens' as const,
+    })),
+  };
+};
+
 export const params = {
   debug: {
     chatCompletion: () => process.env.DEBUG_NEWAPI_CHAT_COMPLETION === '1',
@@ -95,11 +201,13 @@ export const params = {
     // Try to get pricing information to enrich model details
     const pricingMap: Map<string, NewAPIPricing> = new Map();
 
-    const pricingList = await fetchPricing(
-      `${baseURL}/api/pricing`,
-      openAIClient.apiKey || '',
-      providerId,
-    );
+    // 并行拉取定价与站点状态（币种设置）
+    const [pricingList, siteStatus] = await Promise.all([
+      fetchPricing(`${baseURL}/api/pricing`, openAIClient.apiKey || '', providerId),
+      fetchSiteStatus(baseURL, providerId),
+    ]);
+    const { currency, rateMultiplier } = resolveCurrency(siteStatus);
+
     if (Array.isArray(pricingList)) {
       pricingList.forEach((pricing) => {
         pricingMap.set(pricing.model_name, pricing);
@@ -107,6 +215,13 @@ export const params = {
     }
 
     const calculatePricing = (pricing: NewAPIPricing) => {
+      // 分段表达式计费（billing_mode = "tiered_expr"）优先；
+      // 此时随附的 model_ratio 只是兜底值，并非真实价格。
+      if (pricing.billing_mode === 'tiered_expr' && pricing.billing_expr) {
+        const tiered = parseBillingExpr(pricing.billing_expr, rateMultiplier, currency ?? 'USD');
+        if (tiered) return tiered;
+      }
+
       let inputPrice: number | undefined;
       let outputPrice: number | undefined;
 
@@ -129,16 +244,17 @@ export const params = {
           outputPrice = inputPrice * (pricing.completion_ratio || 1);
 
           return {
+            ...(currency && { currency }),
             units: [
               {
                 name: 'textInput',
-                rate: inputPrice,
+                rate: inputPrice * rateMultiplier,
                 strategy: 'fixed',
                 unit: 'millionTokens',
               },
               {
                 name: 'textOutput',
-                rate: outputPrice,
+                rate: outputPrice * rateMultiplier,
                 strategy: 'fixed',
                 unit: 'millionTokens',
               },
@@ -163,7 +279,8 @@ export const params = {
         // - model_price: directly specified price (takes priority)
         // - completion_ratio: output price multiplier relative to input price
         //
-        // LobeChat required format: USD per million tokens
+        // 费率按站点币种折算为每百万 tokens 单价
+        //（默认 USD；站点用 CNY 时经 usd_exchange_rate 折算）
 
         const pricingData = calculatePricing(pricing);
         if (pricingData) {

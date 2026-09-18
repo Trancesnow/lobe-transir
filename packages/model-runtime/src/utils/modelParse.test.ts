@@ -519,6 +519,49 @@ describe('modelParse', () => {
       expect(comfyui.vision).toBe(false); // ComfyUI config has empty arrays
     });
 
+    it('should preserve pricing currency from units-based pricing', async () => {
+      const modelList = [
+        {
+          id: 'qwen3.8-flash',
+          pricing: {
+            currency: 'CNY',
+            units: [
+              { name: 'textInput', rate: 0.8, strategy: 'fixed', unit: 'millionTokens' },
+              { name: 'textOutput', rate: 2.7, strategy: 'fixed', unit: 'millionTokens' },
+            ],
+          },
+        },
+      ];
+
+      const result = await processMultiProviderModelList(modelList, 'newapi');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].pricing).toEqual({
+        currency: 'CNY',
+        units: [
+          { name: 'textInput', rate: 0.8, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'textOutput', rate: 2.7, strategy: 'fixed', unit: 'millionTokens' },
+        ],
+      });
+    });
+
+    it('should omit currency when pricing has none', async () => {
+      const modelList = [
+        {
+          id: 'gpt-4o-mini',
+          pricing: {
+            units: [{ name: 'textInput', rate: 0.15, strategy: 'fixed', unit: 'millionTokens' }],
+          },
+        },
+      ];
+
+      const result = await processMultiProviderModelList(modelList, 'newapi');
+
+      expect(result[0].pricing).toEqual({
+        units: [{ name: 'textInput', rate: 0.15, strategy: 'fixed', unit: 'millionTokens' }],
+      });
+    });
+
     it('should recognize model capabilities based on keyword detection across providers', async () => {
       const modelList = [
         { id: 'gpt-4o' }, // OpenAI: '4o' -> vision, functionCall
