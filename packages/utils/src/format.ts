@@ -146,8 +146,8 @@ export const getCurrencySymbol = (currency?: ModelPriceCurrency) =>
 /**
  * Normalizes the price to USD for unified display on cost/usage surfaces.
  */
-export const formatPriceByCurrency = (price?: number, currency?: ModelPriceCurrency) => {
-  if (!price && price !== 0) return '-';
+export const formatPriceByCurrency = (price?: number | string, currency?: ModelPriceCurrency) => {
+  if (typeof price !== 'number' || !Number.isFinite(price)) return '-';
 
   if (currency === 'CNY') {
     return formatUnitPrice(price / USD_TO_CNY);
@@ -160,10 +160,31 @@ export const formatPriceByCurrency = (price?: number, currency?: ModelPriceCurre
  * symbol included (e.g. `¥0.8` for CNY, `$0.11` for USD). Use this on pricing
  * surfaces that should mirror what the provider charges.
  */
-export const formatPriceInCurrency = (price?: number, currency?: ModelPriceCurrency) => {
-  if (!price && price !== 0) return '-';
+export const formatPriceInCurrency = (price?: number | string, currency?: ModelPriceCurrency) => {
+  if (typeof price !== 'number' || !Number.isFinite(price)) return '-';
 
   return getCurrencySymbol(currency) + formatUnitPrice(price);
+};
+
+/**
+ * Formats a cost amount for readability: amounts below one yuan/dollar are shown
+ * in the minor unit (e.g. `1.19分` for CNY, `1.19¢` for USD) so tiny per-message
+ * costs don't sprawl across four-plus decimal places; amounts of one or more keep
+ * the major unit with two decimals (`¥3.50`). Positive amounts below 0.01 of the
+ * minor unit collapse to `<0.01分` / `<0.01¢`.
+ */
+export const formatCostInCurrency = (price?: number | string, currency?: ModelPriceCurrency) => {
+  if (typeof price !== 'number' || !Number.isFinite(price)) return '-';
+
+  if (Math.abs(price) >= 1) return getCurrencySymbol(currency) + formatPrice(price);
+
+  const minorUnit = currency === 'CNY' ? '分' : '¢';
+  if (price === 0) return `0${minorUnit}`;
+
+  const minor = price * 100;
+  if (Math.abs(minor) < 0.01) return `<0.01${minorUnit}`;
+
+  return `${formatPrice(minor)}${minorUnit}`;
 };
 
 export const formatDate = (date?: Date) => {

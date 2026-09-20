@@ -1,36 +1,21 @@
-import { type ModelPriceCurrency, type Pricing } from 'model-bank';
+import { type Pricing } from 'model-bank';
 
 import {
-  formatPriceByCurrency,
   getCachedTextInputUnitRate,
   getTextInputUnitRate,
   getTextOutputUnitRate,
   getWriteCacheInputUnitRate,
 } from '@/utils/index';
 
+/**
+ * Unit rates in the pricing's native currency (per 1M tokens), without any
+ * USD normalization — CNY sites yield CNY rates matching the new-api panel.
+ */
 export const getPrice = (pricing: Pricing) => {
-  const inputRate = getTextInputUnitRate(pricing);
-  const outputRate = getTextOutputUnitRate(pricing);
-  const cachedInputRate = getCachedTextInputUnitRate(pricing);
-  const writeCacheInputRate = getWriteCacheInputUnitRate(pricing);
-
-  const inputPrice = inputRate
-    ? formatPriceByCurrency(inputRate, pricing?.currency as ModelPriceCurrency)
-    : '0';
-  const cachedInputPrice = cachedInputRate
-    ? formatPriceByCurrency(cachedInputRate, pricing?.currency as ModelPriceCurrency)
-    : '0';
-  const writeCacheInputPrice = writeCacheInputRate
-    ? formatPriceByCurrency(writeCacheInputRate, pricing?.currency as ModelPriceCurrency)
-    : '0';
-  const outputPrice = outputRate
-    ? formatPriceByCurrency(outputRate, pricing?.currency as ModelPriceCurrency)
-    : '0';
-
   return {
-    cachedInput: Number(cachedInputPrice),
-    input: Number(inputPrice),
-    output: Number(outputPrice),
-    writeCacheInput: Number(writeCacheInputPrice),
+    cachedInput: getCachedTextInputUnitRate(pricing) ?? 0,
+    input: getTextInputUnitRate(pricing) ?? 0,
+    output: getTextOutputUnitRate(pricing) ?? 0,
+    writeCacheInput: getWriteCacheInputUnitRate(pricing) ?? 0,
   };
 };

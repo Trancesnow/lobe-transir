@@ -1617,8 +1617,43 @@ describe('NewAPI Runtime - 100% Branch Coverage', () => {
       expect(parseBillingExpr(mismatched)).toBeUndefined();
     });
 
-    it('should return undefined for a single-tier expression', () => {
-      expect(parseBillingExpr('tier("only", p * 0.027 + c * 0.11)')).toBeUndefined();
+    it('should parse a single-tier zero-price expression (free model) into infinity-tier units', () => {
+      // 来自真实 new-api 实例：免费模型（如自建聚合的 kimi-for-coding）的单段表达式，
+      // 随附 model_ratio 只是兜底值，解析失败会错误回退到比率计价
+      const pricing = parseBillingExpr('tier("base", p * 0 + c * 0)');
+
+      expect(pricing).toBeDefined();
+      expect(pricing!.units).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'textInput',
+            strategy: 'tiered',
+            tiers: [{ rate: 0, upTo: 'infinity' }],
+          }),
+          expect.objectContaining({
+            name: 'textOutput',
+            strategy: 'tiered',
+            tiers: [{ rate: 0, upTo: 'infinity' }],
+          }),
+        ]),
+      );
+    });
+
+    it('should apply rate multiplier and currency to a single-tier expression', () => {
+      const pricing = parseBillingExpr('tier("base", p * 0.05 + c * 0.1)', 7.3, 'CNY');
+
+      expect(pricing).toBeDefined();
+      expect(pricing!.currency).toBe('CNY');
+
+      const textInput = pricing!.units.find((u) => u.name === 'textInput');
+      expect(textInput).toMatchObject({
+        tiers: [{ rate: expect.closeTo(0.05 * 2 * 7.3, 12), upTo: 'infinity' }],
+      });
+    });
+
+    it('should return undefined for a single tier carrying a threshold', () => {
+      // 阈值与段数不匹配（1 个阈值预期 2 段），仍属非法形态
+      expect(parseBillingExpr('len <= 32000 ? tier("only", p * 0.027 + c * 0.11)')).toBeUndefined();
     });
 
     it('should return undefined for non-expression garbage', () => {

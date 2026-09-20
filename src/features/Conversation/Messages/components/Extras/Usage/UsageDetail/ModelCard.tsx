@@ -1,4 +1,8 @@
-import { getCachedTextInputUnitRate, getWriteCacheInputUnitRate } from '@lobechat/utils';
+import {
+  formatPriceInCurrency,
+  getCachedTextInputUnitRate,
+  getWriteCacheInputUnitRate,
+} from '@lobechat/utils';
 import { Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import { Tabs } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
@@ -40,6 +44,12 @@ const ModelCard = memo<ModelCardProps>(({ pricing, id, provider, displayName }) 
   const updateSystemStatus = useGlobalStore((s) => s.updateSystemStatus);
 
   const formatPrice = getPrice(pricing || { units: [] });
+  const currency = pricing?.currency;
+
+  const inputPrice = formatPriceInCurrency(formatPrice.input, currency);
+  const outputPrice = formatPriceInCurrency(formatPrice.output, currency);
+  const cachedInputPrice = formatPriceInCurrency(formatPrice.cachedInput, currency);
+  const writeCacheInputPrice = formatPriceInCurrency(formatPrice.writeCacheInput, currency);
 
   return (
     <Flexbox gap={8}>
@@ -91,41 +101,37 @@ const ModelCard = memo<ModelCardProps>(({ pricing, id, provider, displayName }) 
             {getCachedTextInputUnitRate(pricing) && (
               <Tooltip
                 title={t('messages.modelCard.pricing.inputCachedTokens', {
-                  amount: formatPrice.cachedInput,
+                  amount: cachedInputPrice,
                 })}
               >
                 <Flexbox horizontal gap={2}>
                   <Icon icon={CircleFadingArrowUp} />
-                  {formatPrice.cachedInput}
+                  {cachedInputPrice}
                 </Flexbox>
               </Tooltip>
             )}
             {getWriteCacheInputUnitRate(pricing) && (
               <Tooltip
                 title={t('messages.modelCard.pricing.writeCacheInputTokens', {
-                  amount: formatPrice.writeCacheInput,
+                  amount: writeCacheInputPrice,
                 })}
               >
                 <Flexbox horizontal gap={2}>
                   <Icon icon={BookUp2Icon} />
-                  {formatPrice.writeCacheInput}
+                  {writeCacheInputPrice}
                 </Flexbox>
               </Tooltip>
             )}
-            <Tooltip
-              title={t('messages.modelCard.pricing.inputTokens', { amount: formatPrice.input })}
-            >
+            <Tooltip title={t('messages.modelCard.pricing.inputTokens', { amount: inputPrice })}>
               <Flexbox horizontal gap={2}>
                 <Icon icon={ArrowUpFromDot} />
-                {formatPrice.input}
+                {inputPrice}
               </Flexbox>
             </Tooltip>
-            <Tooltip
-              title={t('messages.modelCard.pricing.outputTokens', { amount: formatPrice.output })}
-            >
+            <Tooltip title={t('messages.modelCard.pricing.outputTokens', { amount: outputPrice })}>
               <Flexbox horizontal gap={2}>
                 <Icon icon={ArrowDownToDot} />
-                {formatPrice.output}
+                {outputPrice}
               </Flexbox>
             </Tooltip>
           </Flexbox>

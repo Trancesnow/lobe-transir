@@ -3,6 +3,7 @@ import dayjs from 'dayjs';
 import { describe, expect, it } from 'vitest';
 
 import {
+  formatCostInCurrency,
   formatDate,
   formatIntergerNumber,
   formatNumber,
@@ -227,6 +228,11 @@ describe('format', () => {
       const expectedCNY = formatPrice(price / USD_TO_CNY);
       expect(formatPriceByCurrency(price, 'CNY')).toBe(expectedCNY);
     });
+
+    it('should return "-" instead of throwing for non-numeric input', () => {
+      expect(formatPriceByCurrency('-')).toBe('-');
+      expect(formatPriceByCurrency(NaN)).toBe('-');
+    });
   });
 
   describe('getCurrencySymbol', () => {
@@ -252,6 +258,49 @@ describe('format', () => {
     it('should handle undefined and zero', () => {
       expect(formatPriceInCurrency(undefined)).toBe('-');
       expect(formatPriceInCurrency(0, 'CNY')).toBe('¥0.00');
+    });
+
+    it('should return "-" instead of throwing for non-numeric or non-finite input', () => {
+      // UsageDetail passes the "-" sentinel (and formerly "0.0016-" string-concat
+      // artifacts) for missing unit rates — the formatter must not crash the render.
+      expect(formatPriceInCurrency('-')).toBe('-');
+      expect(formatPriceInCurrency('0.0016-')).toBe('-');
+      expect(formatPriceInCurrency(NaN)).toBe('-');
+      expect(formatPriceInCurrency(Infinity)).toBe('-');
+    });
+  });
+
+  describe('formatCostInCurrency', () => {
+    it('should show sub-yuan amounts in 分 with two decimals', () => {
+      expect(formatCostInCurrency(0.01189, 'CNY')).toBe('1.19分');
+      expect(formatCostInCurrency(0.0015, 'CNY')).toBe('0.15分');
+      expect(formatCostInCurrency(0.05148, 'CNY')).toBe('5.15分');
+      expect(formatCostInCurrency(0.6369, 'CNY')).toBe('63.69分');
+    });
+
+    it('should show sub-dollar amounts in cents', () => {
+      expect(formatCostInCurrency(0.01189, 'USD')).toBe('1.19¢');
+      expect(formatCostInCurrency(0.5, 'USD')).toBe('50.00¢');
+    });
+
+    it('should keep the major unit with two decimals for amounts of one or more', () => {
+      expect(formatCostInCurrency(3.5, 'CNY')).toBe('¥3.50');
+      expect(formatCostInCurrency(12, 'USD')).toBe('$12.00');
+      expect(formatCostInCurrency(1, 'CNY')).toBe('¥1.00');
+    });
+
+    it('should collapse positive amounts below 0.01 of the minor unit', () => {
+      expect(formatCostInCurrency(0.000_01, 'CNY')).toBe('<0.01分');
+      expect(formatCostInCurrency(0.000_099, 'USD')).toBe('<0.01¢');
+    });
+
+    it('should handle zero, the "-" sentinel and non-finite input', () => {
+      expect(formatCostInCurrency(0, 'CNY')).toBe('0分');
+      expect(formatCostInCurrency(0, 'USD')).toBe('0¢');
+      expect(formatCostInCurrency('-')).toBe('-');
+      expect(formatCostInCurrency(undefined)).toBe('-');
+      expect(formatCostInCurrency(NaN)).toBe('-');
+      expect(formatCostInCurrency(Infinity)).toBe('-');
     });
   });
 

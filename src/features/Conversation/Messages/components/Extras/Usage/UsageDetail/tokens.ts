@@ -5,11 +5,19 @@ import { getAudioInputUnitRate, getAudioOutputUnitRate } from '@/utils/pricing';
 
 import { getPrice } from './pricing';
 
-const calcCredit = (token: number, pricing?: number) => {
+/**
+ * Cost in the pricing's native currency: rate is per 1M tokens.
+ * Keep floating point — small amounts (e.g. ¥0.0016) must not be truncated.
+ */
+const calcCost = (token: number, pricing?: number): number | '-' => {
   if (!pricing) return '-';
 
-  return parseInt((token * pricing).toFixed(0));
+  return (token / 1_000_000) * pricing;
 };
+
+/** Sum only numeric costs — the '-' sentinel must never leak into arithmetic. */
+const sumCosts = (...costs: Array<number | '-'>): number =>
+  costs.reduce<number>((acc, cost) => acc + (typeof cost === 'number' ? cost : 0), 0);
 
 export const getDetailsToken = (usage: ModelUsage, modelCard?: LobeDefaultAiModelListItem) => {
   const inputTextTokens = usage.inputTextTokens || (usage as any).inputTokens || 0;
@@ -47,109 +55,100 @@ export const getDetailsToken = (usage: ModelUsage, modelCard?: LobeDefaultAiMode
       ? inputCacheTokens / cacheRateInputTokens
       : undefined;
 
-  // Pricing
+  // Pricing (unit rates in the pricing's native currency, per 1M tokens)
   const formatPrice = getPrice(modelCard?.pricing || { units: [] });
 
-  const inputCacheMissCredit = (
-    !!inputCacheMissTokens ? calcCredit(inputCacheMissTokens, formatPrice.input) : 0
-  ) as number;
-
-  const inputCachedCredit = (
-    !!inputCacheTokens ? calcCredit(inputCacheTokens, formatPrice.cachedInput) : 0
-  ) as number;
-
-  const inputWriteCachedCredit = !!inputWriteCacheTokens
-    ? (calcCredit(inputWriteCacheTokens, formatPrice.writeCacheInput) as number)
+  const inputCacheMissCost = !!inputCacheMissTokens
+    ? calcCost(inputCacheMissTokens, formatPrice.input)
     : 0;
 
-  const totalOutputCredit = (
-    !!totalOutputTokens ? calcCredit(totalOutputTokens, formatPrice.output) : 0
-  ) as number;
-  const totalInputCredit = (
-    !!totalInputTokens ? calcCredit(totalInputTokens, formatPrice.input) : 0
-  ) as number;
-  const inputToolCredit = (
-    !!inputToolTokens ? calcCredit(inputToolTokens, formatPrice.input) : 0
-  ) as number;
+  const inputCachedCost = !!inputCacheTokens
+    ? calcCost(inputCacheTokens, formatPrice.cachedInput)
+    : 0;
 
-  const totalCredit =
-    inputCacheMissCredit +
-    inputCachedCredit +
-    inputWriteCachedCredit +
-    inputToolCredit +
-    totalOutputCredit;
+  const inputWriteCachedCost = !!inputWriteCacheTokens
+    ? calcCost(inputWriteCacheTokens, formatPrice.writeCacheInput)
+    : 0;
+
+  const totalOutputCost = !!totalOutputTokens ? calcCost(totalOutputTokens, formatPrice.output) : 0;
+  const totalInputCost = !!totalInputTokens ? calcCost(totalInputTokens, formatPrice.input) : 0;
+  const inputToolCost = !!inputToolTokens ? calcCost(inputToolTokens, formatPrice.input) : 0;
+
+  const totalCost = sumCosts(
+    inputCacheMissCost,
+    inputCachedCost,
+    inputWriteCachedCost,
+    inputToolCost,
+    totalOutputCost,
+  );
 
   return {
     inputAudio: !!usage.inputAudioTokens
       ? {
-          credit: calcCredit(usage.inputAudioTokens, getAudioInputUnitRate(modelCard?.pricing)),
+          cost: calcCost(usage.inputAudioTokens, getAudioInputUnitRate(modelCard?.pricing)),
           token: usage.inputAudioTokens,
         }
       : undefined,
     inputCacheMiss: !!inputCacheMissTokens
-      ? { credit: inputCacheMissCredit, token: inputCacheMissTokens }
+      ? { cost: inputCacheMissCost, token: inputCacheMissTokens }
       : undefined,
     inputCached: !!inputCacheTokens
-      ? { credit: inputCachedCredit, token: inputCacheTokens }
+      ? { cost: inputCachedCost, token: inputCacheTokens }
       : undefined,
     inputCachedWrite: !!inputWriteCacheTokens
-      ? { credit: inputWriteCachedCredit, token: inputWriteCacheTokens }
+      ? { cost: inputWriteCachedCost, token: inputWriteCacheTokens }
       : undefined,
     inputCacheRate: cacheRate,
     inputCitation: !!usage.inputCitationTokens
       ? {
-          credit: calcCredit(usage.inputCitationTokens, formatPrice.input),
+          cost: calcCost(usage.inputCitationTokens, formatPrice.input),
           token: usage.inputCitationTokens,
         }
       : undefined,
     inputText: !!inputTextTokens
       ? {
-          credit: calcCredit(inputTextTokens, formatPrice.input),
+          cost: calcCost(inputTextTokens, formatPrice.input),
           token: inputTextTokens,
         }
       : undefined,
     inputTool: !!inputToolTokens
       ? {
-          credit: inputToolCredit,
+          cost: calcCost(inputToolTokens, formatPrice.input),
           token: inputToolTokens,
         }
       : undefined,
 
     outputAudio: !!usage.outputAudioTokens
       ? {
-          credit: calcCredit(usage.outputAudioTokens, getAudioOutputUnitRate(modelCard?.pricing)),
+          cost: calcCost(usage.outputAudioTokens, getAudioOutputUnitRate(modelCard?.pricing)),
           id: 'outputAudio',
           token: usage.outputAudioTokens,
         }
       : undefined,
     outputImage: !!outputImageTokens
       ? {
-          credit: calcCredit(outputImageTokens, formatPrice.output),
+          cost: calcCost(outputImageTokens, formatPrice.output),
           id: 'outputImage',
           token: outputImageTokens,
         }
       : undefined,
     outputReasoning: !!outputReasoningTokens
       ? {
-          credit: calcCredit(outputReasoningTokens, formatPrice.output),
+          cost: calcCost(outputReasoningTokens, formatPrice.output),
           token: outputReasoningTokens,
         }
       : undefined,
     outputText: !!outputTextTokens
       ? {
-          credit: calcCredit(outputTextTokens, formatPrice.output),
+          cost: calcCost(outputTextTokens, formatPrice.output),
           token: outputTextTokens,
         }
       : undefined,
 
-    totalInput: !!totalInputTokens
-      ? { credit: totalInputCredit, token: totalInputTokens }
-      : undefined,
+    totalInput: !!totalInputTokens ? { cost: totalInputCost, token: totalInputTokens } : undefined,
     totalOutput: !!totalOutputTokens
-      ? { credit: totalOutputCredit, token: totalOutputTokens }
+      ? { cost: totalOutputCost, token: totalOutputTokens }
       : undefined,
-    totalTokens: !!usage.totalTokens
-      ? { credit: totalCredit, token: usage.totalTokens }
-      : undefined,
+    totalTokens: !!usage.totalTokens ? { cost: totalCost, token: usage.totalTokens } : undefined,
   };
 };

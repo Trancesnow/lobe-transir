@@ -7,16 +7,20 @@ export interface TokenProgressItem {
   color: string;
   id: string;
   title: string;
-  value: number;
+  value: number | '-';
 }
 
 interface TokenProgressProps {
   data: TokenProgressItem[];
+  formatValue?: (value: number | '-') => string;
   showIcon?: boolean;
 }
 
-const TokenProgress = memo<TokenProgressProps>(({ data, showIcon }) => {
-  const total = data.reduce((acc, item) => acc + item.value, 0);
+/** '-' is the missing-price sentinel from calcCost; it must not enter arithmetic or CSS. */
+const valueOf = (value: number | '-'): number => (typeof value === 'number' ? value : 0);
+
+const TokenProgress = memo<TokenProgressProps>(({ data, showIcon, formatValue }) => {
+  const total = data.reduce((acc, item) => acc + valueOf(item.value), 0);
 
   return (
     <Flexbox gap={8} style={{ position: 'relative' }} width={'100%'}>
@@ -35,7 +39,7 @@ const TokenProgress = memo<TokenProgressProps>(({ data, showIcon }) => {
           <Flexbox
             height={'100%'}
             key={item.id}
-            style={{ background: item.color, flex: item.value }}
+            style={{ background: item.color, flex: valueOf(item.value) }}
           />
         ))}
       </Flexbox>
@@ -56,7 +60,9 @@ const TokenProgress = memo<TokenProgressProps>(({ data, showIcon }) => {
               )}
               <div style={{ color: cssVar.colorTextSecondary }}>{item.title}</div>
             </Flexbox>
-            <div style={{ fontWeight: 500 }}>{formatUsageValue(item.value)}</div>
+            <div style={{ fontWeight: 500 }}>
+              {formatValue ? formatValue(item.value) : formatUsageValue(valueOf(item.value))}
+            </div>
           </Flexbox>
         ))}
       </Flexbox>

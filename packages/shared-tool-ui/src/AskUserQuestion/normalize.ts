@@ -2,14 +2,61 @@ import { pickString, toRecord } from '@lobechat/utils/object';
 
 import type { AskUserQuestionArgs, AskUserQuestionItem, AskUserQuestionOption } from './types';
 
+/**
+ * Extract the first complete JSON object/array from a string, ignoring
+ * trailing garbage. Model payloads occasionally double-encode `questions` and
+ * append stray characters (e.g. an extra `}`) after the array — a balanced,
+ * string-aware scan recovers the valid prefix that plain `JSON.parse` rejects.
+ */
+const extractFirstJsonValue = (input: string): string | undefined => {
+  const start = input.search(/[[{]/);
+  if (start < 0) return;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < input.length; i += 1) {
+    const ch = input[i];
+
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{' || ch === '[') {
+      depth += 1;
+    } else if (ch === '}' || ch === ']') {
+      depth -= 1;
+      if (depth === 0) return input.slice(start, i + 1);
+      if (depth < 0) return;
+    }
+  }
+};
+
 const parseJsonString = (value: unknown): unknown => {
   if (typeof value !== 'string') return value;
 
   try {
     return JSON.parse(value) as unknown;
   } catch {
-    return value;
+    // fall through to the repair attempt
   }
+
+  const prefix = extractFirstJsonValue(value);
+  if (prefix) {
+    try {
+      return JSON.parse(prefix) as unknown;
+    } catch {
+      // fall through to the original behavior
+    }
+  }
+
+  return value;
 };
 
 /**

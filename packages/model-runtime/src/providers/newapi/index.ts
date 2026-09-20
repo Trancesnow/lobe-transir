@@ -124,8 +124,9 @@ const resolveCurrency = (
 /**
  * 将 new-api 的分段计费表达式解析为 LobeChat 的分层定价单位。
  *
- * 表达式形态（2~3 段，cr/cc 项可选）：
- * `len <= 32000 ? tier("short", p * 0.027 + c * 0.11 + cr * 0.003) : ... : tier("long", ...)`
+ * 表达式形态（单段或 2~3 段，cr/cc 项可选）：
+ * 单段（常用于免费模型）：`tier("base", p * 0 + c * 0)`
+ * 多段：`len <= 32000 ? tier("short", p * 0.027 + c * 0.11 + cr * 0.003) : ... : tier("long", ...)`
  * - p  -> textInput, c -> textOutput, cr -> textInput_cacheRead, cc -> textInput_cacheWrite
  * - 系数与 model_ratio 同单位（$0.002/1K tokens），故 rate = 系数 * 2，换算为 $/1M tokens
  * - rateMultiplier 施加站点币种折算（如站点用 CNY 时的 usd_exchange_rate）
@@ -140,7 +141,7 @@ export const parseBillingExpr = (
   const thresholds = [...expr.matchAll(/len\s*<=\s*(\d+)/g)].map((m) => Number(m[1]));
   const tierBodies = [...expr.matchAll(/tier\(\s*"[^"]*"\s*,([^)]*)\)/g)].map((m) => m[1]);
 
-  if (tierBodies.length < 2 || tierBodies.length !== thresholds.length + 1) return undefined;
+  if (tierBodies.length === 0 || tierBodies.length !== thresholds.length + 1) return undefined;
 
   const variableToUnit: Record<string, PricingUnitName> = {
     c: 'textOutput',

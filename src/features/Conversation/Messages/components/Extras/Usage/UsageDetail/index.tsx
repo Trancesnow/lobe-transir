@@ -3,7 +3,7 @@ import { formatUsageValue } from '@lobechat/utils';
 import { Center, Flexbox, Icon, Popover } from '@lobehub/ui';
 import { Divider } from 'antd';
 import { cssVar } from 'antd-style';
-import { BadgeCent, CoinsIcon } from 'lucide-react';
+import { BadgeCent, BadgeJapaneseYen, CoinsIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -11,7 +11,7 @@ import InfoTooltip from '@/components/InfoTooltip';
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
-import { formatNumber, formatShortenNumber } from '@/utils/format';
+import { formatCostInCurrency, formatNumber, formatShortenNumber } from '@/utils/format';
 
 import AnimatedNumber from './AnimatedNumber';
 import ModelCard from './ModelCard';
@@ -36,25 +36,28 @@ const TokenDetail = memo<TokenDetailProps>(({ usage, performance, model, provide
   const modelCard = useAiInfraStore(aiModelSelectors.getModelCard(model, provider));
   const isShowCredit = useGlobalStore(systemStatusSelectors.isShowCredit) && !!modelCard?.pricing;
 
+  const currency = modelCard?.pricing?.currency;
+  const formatCostValue = (value: number | '-') => formatCostInCurrency(value, currency);
+
   const detailTokens = getDetailsToken(usage, modelCard);
   const inputDetails = [
     !!detailTokens.inputAudio && {
       color: cssVar.cyan9,
       id: 'reasoning',
       title: t('messages.tokenDetails.inputAudio'),
-      value: isShowCredit ? detailTokens.inputAudio.credit : detailTokens.inputAudio.token,
+      value: isShowCredit ? detailTokens.inputAudio.cost : detailTokens.inputAudio.token,
     },
     !!detailTokens.inputCitation && {
       color: cssVar.orange,
       id: 'inputText',
       title: t('messages.tokenDetails.inputCitation'),
-      value: isShowCredit ? detailTokens.inputCitation.credit : detailTokens.inputCitation.token,
+      value: isShowCredit ? detailTokens.inputCitation.cost : detailTokens.inputCitation.token,
     },
     !!detailTokens.inputText && {
       color: cssVar.green,
       id: 'inputText',
       title: t('messages.tokenDetails.inputText'),
-      value: isShowCredit ? detailTokens.inputText.credit : detailTokens.inputText.token,
+      value: isShowCredit ? detailTokens.inputText.cost : detailTokens.inputText.token,
     },
   ].filter(Boolean) as TokenProgressItem[];
 
@@ -63,27 +66,25 @@ const TokenDetail = memo<TokenDetailProps>(({ usage, performance, model, provide
       color: cssVar.pink,
       id: 'reasoning',
       title: t('messages.tokenDetails.reasoning'),
-      value: isShowCredit
-        ? detailTokens.outputReasoning.credit
-        : detailTokens.outputReasoning.token,
+      value: isShowCredit ? detailTokens.outputReasoning.cost : detailTokens.outputReasoning.token,
     },
     !!detailTokens.outputImage && {
       color: cssVar.purple,
       id: 'outputImage',
       title: t('messages.tokenDetails.outputImage'),
-      value: isShowCredit ? detailTokens.outputImage.credit : detailTokens.outputImage.token,
+      value: isShowCredit ? detailTokens.outputImage.cost : detailTokens.outputImage.token,
     },
     !!detailTokens.outputAudio && {
       color: cssVar.cyan9,
       id: 'outputAudio',
       title: t('messages.tokenDetails.outputAudio'),
-      value: isShowCredit ? detailTokens.outputAudio.credit : detailTokens.outputAudio.token,
+      value: isShowCredit ? detailTokens.outputAudio.cost : detailTokens.outputAudio.token,
     },
     !!detailTokens.outputText && {
       color: cssVar.green,
       id: 'outputText',
       title: t('messages.tokenDetails.outputText'),
-      value: isShowCredit ? detailTokens.outputText.credit : detailTokens.outputText.token,
+      value: isShowCredit ? detailTokens.outputText.cost : detailTokens.outputText.token,
     },
   ].filter(Boolean) as TokenProgressItem[];
 
@@ -93,50 +94,49 @@ const TokenDetail = memo<TokenDetailProps>(({ usage, performance, model, provide
 
       id: 'uncachedInput',
       title: t('messages.tokenDetails.inputUncached'),
-      value: isShowCredit ? detailTokens.inputCacheMiss.credit : detailTokens.inputCacheMiss.token,
+      value: isShowCredit ? detailTokens.inputCacheMiss.cost : detailTokens.inputCacheMiss.token,
     },
     !!detailTokens.inputCached && {
       color: cssVar.orange,
       id: 'inputCached',
       title: t('messages.tokenDetails.inputCached'),
-      value: isShowCredit ? detailTokens.inputCached.credit : detailTokens.inputCached.token,
+      value: isShowCredit ? detailTokens.inputCached.cost : detailTokens.inputCached.token,
     },
     !!detailTokens.inputCachedWrite && {
       color: cssVar.yellow,
       id: 'cachedWriteInput',
       title: t('messages.tokenDetails.inputWriteCached'),
       value: isShowCredit
-        ? detailTokens.inputCachedWrite.credit
+        ? detailTokens.inputCachedWrite.cost
         : detailTokens.inputCachedWrite.token,
     },
     !!detailTokens.inputTool && {
       color: cssVar.geekblue,
       id: 'inputTool',
       title: t('messages.tokenDetails.inputTool'),
-      value: isShowCredit ? detailTokens.inputTool.credit : detailTokens.inputTool.token,
+      value: isShowCredit ? detailTokens.inputTool.cost : detailTokens.inputTool.token,
     },
     !!detailTokens.totalOutput && {
       color: cssVar.colorSuccess,
       id: 'output',
       title: t('messages.tokenDetails.output'),
-      value: isShowCredit ? detailTokens.totalOutput.credit : detailTokens.totalOutput.token,
+      value: isShowCredit ? detailTokens.totalOutput.cost : detailTokens.totalOutput.token,
     },
   ].filter(Boolean) as TokenProgressItem[];
 
   const totalCount =
     isShowCredit && !!detailTokens.totalTokens
-      ? detailTokens.totalTokens.credit
+      ? (detailTokens.totalTokens.cost as number)
       : detailTokens.totalTokens!.token;
 
-  const detailTotal = formatUsageValue(totalCount);
+  const detailTotal = isShowCredit ? formatCostValue(totalCount) : formatUsageValue(totalCount);
   const cacheRate =
     typeof detailTokens.inputCacheRate === 'number'
       ? `${formatNumber(detailTokens.inputCacheRate * 100, 1)}%`
       : undefined;
 
-  const averagePricing = formatNumber(
-    detailTokens.totalTokens!.credit / detailTokens.totalTokens!.token,
-    2,
+  const averagePricing = formatCostValue(
+    ((detailTokens.totalTokens!.cost as number) / detailTokens.totalTokens!.token) * 1_000_000,
   );
 
   const tps = performance?.tps ? formatNumber(performance.tps, 2) : undefined;
@@ -164,7 +164,11 @@ const TokenDetail = memo<TokenDetailProps>(({ usage, performance, model, provide
                     {t('messages.tokenDetails.inputTitle')}
                   </div>
                 </Flexbox>
-                <TokenProgress showIcon data={inputDetails} />
+                <TokenProgress
+                  showIcon
+                  data={inputDetails}
+                  formatValue={isShowCredit ? formatCostValue : undefined}
+                />
               </Flexbox>
             )}
             {outputDetails.length > 1 && (
@@ -180,11 +184,19 @@ const TokenDetail = memo<TokenDetailProps>(({ usage, performance, model, provide
                     {t('messages.tokenDetails.outputTitle')}
                   </div>
                 </Flexbox>
-                <TokenProgress showIcon data={outputDetails} />
+                <TokenProgress
+                  showIcon
+                  data={outputDetails}
+                  formatValue={isShowCredit ? formatCostValue : undefined}
+                />
               </Flexbox>
             )}
             <Flexbox>
-              <TokenProgress showIcon data={totalDetail} />
+              <TokenProgress
+                showIcon
+                data={totalDetail}
+                formatValue={isShowCredit ? formatCostValue : undefined}
+              />
               <Divider style={{ marginBlock: 8 }} />
               {cacheRate && (
                 <Flexbox horizontal align={'center'} gap={4} justify={'space-between'}>
@@ -246,7 +258,9 @@ const TokenDetail = memo<TokenDetailProps>(({ usage, performance, model, provide
           updateSystemStatus({ tokenDisplayFormatShort: !isShortFormat });
         }}
       >
-        <Icon icon={isShowCredit ? BadgeCent : CoinsIcon} />
+        <Icon
+          icon={isShowCredit ? (currency === 'CNY' ? BadgeJapaneseYen : BadgeCent) : CoinsIcon}
+        />
         <AnimatedNumber
           duration={1500}
           // Force remount when switching between token/credit to prevent unwanted animation
@@ -254,6 +268,8 @@ const TokenDetail = memo<TokenDetailProps>(({ usage, performance, model, provide
           key={isShowCredit ? 'credit' : 'token'}
           value={totalCount}
           formatter={(value) => {
+            if (isShowCredit) return formatCostValue(value);
+
             const roundedValue = Math.round(value);
             if (isShortFormat) {
               return (formatShortenNumber(roundedValue) as string).toLowerCase?.();

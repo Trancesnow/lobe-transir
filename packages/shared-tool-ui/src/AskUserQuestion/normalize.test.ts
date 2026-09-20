@@ -94,6 +94,29 @@ describe('normalizeAskUserQuestions', () => {
     expect(normalizeAskUserQuestions({ questions: JSON.stringify(expected) })).toEqual(expected);
   });
 
+  it('repairs stringified questions with trailing garbage from model payloads', () => {
+    // Seen in production: the model double-encodes `questions` and appends an
+    // extra `}` after the array, so plain JSON.parse rejects the whole string.
+    const questions = [
+      {
+        header: 'humanizer 调用方式',
+        options: [
+          {
+            description: '每次模拟回复都显示草稿、诊断要点、终稿三部分',
+            label: '每轮强制三段流程',
+          },
+          { description: '内部自查语言，只输出最终叙事', label: '仅按需触发，不显示过程' },
+          { description: '明显有AI味时才精修且展示过程', label: '仅按需触发，显示过程' },
+        ],
+        question: '你希望之后每一轮模拟正文都强制走完整流程吗？',
+      },
+    ];
+
+    expect(normalizeAskUserQuestions({ questions: `${JSON.stringify(questions)}}` })).toEqual(
+      questions,
+    );
+  });
+
   it('strips the "(Recommended)" label marker into the recommended flag', () => {
     const questions = normalizeAskUserQuestions({
       questions: [

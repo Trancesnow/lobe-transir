@@ -35,6 +35,7 @@ import { ConnectorToolModel } from '@/database/models/connectorTool';
 import { FileModel } from '@/database/models/file';
 import type { MessageModel } from '@/database/models/message';
 import type { PluginModel } from '@/database/models/plugin';
+import { appEnv } from '@/envs/app';
 import {
   type ExecutionPlan,
   executionPlanToManifestExecutionEnv,
@@ -715,7 +716,13 @@ export const discoverTools = async (
     // the plan resolves to `sandbox`). `sandboxFallback` keeps that decision
     // inside the resolver instead of patching its result here.
     executionPlan = resolveExecutionPlan({
-      agencyConfig: agentConfig.agencyConfig,
+      agencyConfig: {
+        ...agentConfig.agencyConfig,
+        // 私有定制：未显式设置执行目标的助理套用部署级默认（本实例为 auto，
+        // 单台在线设备自动路由），避免落入需 Market 授权的云端沙箱
+        executionTarget:
+          agentConfig.agencyConfig?.executionTarget ?? appEnv.DEFAULT_EXECUTION_TARGET,
+      },
       canUseDevice,
       chatConfig: agentConfig.chatConfig ?? undefined,
       clientExecutionAvailable: gatewayConfigured,
