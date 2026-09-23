@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import {
@@ -40,6 +41,11 @@ export const webBrowsingRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      return ctx.webBrowsingService.upsertCrawledDocument(input);
+      void ctx;
+      void input;
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Web crawling never creates a resource; use Save to resource explicitly.',
+      });
     }),
 });

@@ -3,6 +3,7 @@ import { toast } from '@lobehub/ui/base-ui';
 import { t } from 'i18next';
 
 import { handleFileUploadError } from '@/business/client/handleFileUploadError';
+import { ResourceSaveCancelledError } from '@/services/confirmResourceSave';
 import { fileService } from '@/services/file';
 import { hashFile } from '@/services/hashFile';
 import { uploadService } from '@/services/upload';
@@ -29,6 +30,8 @@ type OnStatusUpdate = (
 
 interface UploadWithProgressParams {
   abortController?: AbortController;
+  /** Chat and tool attachments are temporary until explicitly saved to resources. */
+  ephemeral?: boolean;
   file: File;
   /**
    * Additional metadata persisted with the file record. Media capture flows use
@@ -142,6 +145,7 @@ export class FileUploadActionImpl {
   };
 
   uploadWithProgress = async ({
+    ephemeral,
     file,
     onStatusUpdate,
     knowledgeBaseId,
@@ -237,6 +241,7 @@ export class FileUploadActionImpl {
 
       const data = await fileService.createFile(
         {
+          ephemeral,
           fileType,
           hash,
           metadata: {
@@ -271,7 +276,7 @@ export class FileUploadActionImpl {
       return { ...data, dimensions, filename: normalizedFile.name };
     } catch (error) {
       if (uploadedPathname) await uploadService.releaseUpload(uploadedPathname);
-      if (abortController?.signal.aborted) {
+      if (abortController?.signal.aborted || error instanceof ResourceSaveCancelledError) {
         onStatusUpdate?.({
           id: statusId,
           type: 'updateFile',

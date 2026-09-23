@@ -30,8 +30,7 @@ const uploadSizeSchema = z
   .number()
   .int()
   .min(0)
-  .max(MAX_UPLOAD_FILE_SIZE, UPLOAD_FILE_SIZE_LIMIT_ERROR_MESSAGE)
-  .optional();
+  .max(MAX_UPLOAD_FILE_SIZE, UPLOAD_FILE_SIZE_LIMIT_ERROR_MESSAGE);
 
 const uploadProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -132,11 +131,6 @@ const reserveUpload = async (params: {
 const getMultipartPartSize = (size: number) =>
   Math.max(MULTIPART_PART_SIZE, Math.ceil(size / MAX_MULTIPART_PARTS));
 
-const getActiveSession = async (
-  service: FileUploadService,
-  pathname: string,
-): Promise<FileUploadItem | undefined> => service.assertActiveOrLegacy(pathname);
-
 const validateMultipartSession = (upload: FileUploadItem, input: { uploadId: string }): number => {
   if (upload.multipartUploadId !== input.uploadId || !upload.multipartPartSize) {
     throw uploadConflict('Multipart upload does not match the active session');
@@ -162,9 +156,7 @@ export const uploadRouter = router({
         if (await ctx.fileUploadService.hasAnyLiveSession(input.pathname)) {
           throw uploadConflict('Upload pathname belongs to another session');
         }
-        const s3 = new FileS3();
-        await s3.abortMultipartUpload(input.pathname, input.uploadId);
-        return { success: true };
+        throw uploadConflict('Upload reservation is required');
       }
       if (upload.multipartUploadId !== input.uploadId) {
         throw uploadConflict('Multipart upload does not match the upload session');
@@ -202,17 +194,7 @@ export const uploadRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const s3 = new FileS3();
-      const upload = await getActiveSession(ctx.fileUploadService, input.pathname);
-
-      if (!upload) {
-        await s3.completeMultipartUpload(
-          input.pathname,
-          input.uploadId,
-          input.partCount,
-          input.parts?.map(({ etag, partNumber }) => ({ ETag: etag, PartNumber: partNumber })),
-        );
-        return { success: true };
-      }
+      const upload = await ctx.fileUploadService.assertActive(input.pathname);
 
       const partSize = validateMultipartSession(upload, input);
       const expectedPartCount = Math.ceil(upload.size / partSize);
@@ -250,11 +232,6 @@ export const uploadRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const s3 = new FileS3();
-      if (input.size === undefined) {
-        const uploadId = await s3.createMultipartUpload(input.pathname, input.contentType);
-        return { uploadId };
-      }
-
       const partSize = getMultipartPartSize(input.size);
       const upload = await reserveUpload({
         clientIp: ctx.clientIp ?? undefined,
@@ -298,10 +275,7 @@ export const uploadRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const s3 = new FileS3();
-      const upload = await getActiveSession(ctx.fileUploadService, input.pathname);
-      if (!upload) {
-        return s3.createPreSignedUploadPartUrl(input.pathname, input.uploadId, input.partNumber);
-      }
+      const upload = await ctx.fileUploadService.assertActive(input.pathname);
 
       const partSize = validateMultipartSession(upload, input);
       const partCount = Math.ceil(upload.size / partSize);
@@ -325,8 +299,6 @@ export const uploadRouter = router({
     .input(z.object({ pathname: z.string().min(1), size: uploadSizeSchema }))
     .mutation(async ({ ctx, input }) => {
       const s3 = new FileS3();
-      if (input.size === undefined) return s3.createPreSignedUrl(input.pathname);
-
       await reserveUpload({
         clientIp: ctx.clientIp ?? undefined,
         db: ctx.serverDB,

@@ -107,6 +107,10 @@ describe('UploadService', () => {
     it('should upload to server S3 in non-desktop mode', async () => {
       const result = await uploadService.uploadFileToS3(mockFile, {});
 
+      expect(lambdaClient.upload.createS3PreSignedUrl.mutate).toHaveBeenCalledWith({
+        pathname: `${fileEnv.NEXT_PUBLIC_S3_FILE_PATH}/1/mock-uuid.png`,
+        size: mockFile.size,
+      });
       expect(result.success).toBe(true);
       expect(result.data).toEqual({
         date: '1',
@@ -456,6 +460,11 @@ describe('UploadService', () => {
 
       await uploadService.uploadToServerS3(largeFile, {});
 
+      expect(lambdaClient.upload.createS3MultipartUpload.mutate).toHaveBeenCalledWith({
+        contentType: largeFile.type,
+        pathname: expect.stringContaining('mock-uuid.bin'),
+        size: largeFile.size,
+      });
       expect(lambdaClient.upload.createS3PreSignedUrl.mutate).not.toHaveBeenCalled();
       expect(lambdaClient.upload.createS3MultipartUploadPartUrl.mutate).toHaveBeenCalledTimes(2);
       expect(slice).toHaveBeenCalledTimes(2);

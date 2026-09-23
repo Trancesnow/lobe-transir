@@ -15,6 +15,7 @@ import type {
   UpdateDocumentOutput,
 } from '@/server/routers/lambda/_schema/documentHistory';
 
+import { confirmResourceSave } from '../confirmResourceSave';
 import { abortableRequest } from '../utils/abortableRequest';
 
 const serializeSavedAt = (savedAt: Date | string) =>
@@ -93,7 +94,7 @@ const serializeHistoryComparison = <
 
 export interface CreateDocumentParams {
   content?: string;
-  editorData: string;
+  editorData?: string;
   fileType?: string;
   knowledgeBaseId?: string;
   metadata?: Record<string, any>;
@@ -133,11 +134,27 @@ const autosavedOnceIds = new Set<string>();
 
 export class DocumentService {
   async createDocument(params: CreateDocumentParams): Promise<DocumentItem> {
-    return lambdaClient.document.createDocument.mutate(params);
+    await confirmResourceSave(params.title);
+    return this.saveDocumentToResource(params);
   }
 
-  async createDocuments(documents: CreateDocumentParams[]): Promise<DocumentItem[]> {
-    return lambdaClient.document.createDocuments.mutate({ documents });
+  async saveDocumentToResource(params: CreateDocumentParams): Promise<DocumentItem> {
+    const { token } = await lambdaClient.document.requestSaveAuthorization.mutate({
+      operation: 'createDocument',
+      payload: params,
+    });
+    return lambdaClient.document.createDocument.mutate({ ...params, saveAuthorization: token });
+  }
+
+  async createDocuments(
+    documents: Array<CreateDocumentParams & { editorData: string }>,
+  ): Promise<DocumentItem[]> {
+    await confirmResourceSave(documents.map((document) => document.title).join('、'));
+    const { token } = await lambdaClient.document.requestSaveAuthorization.mutate({
+      operation: 'createDocuments',
+      payload: { documents },
+    });
+    return lambdaClient.document.createDocuments.mutate({ documents, saveAuthorization: token });
   }
 
   async queryDocuments(params?: {
@@ -216,7 +233,11 @@ export class DocumentService {
   }
 
   async promoteDocument(id: string) {
-    return lambdaClient.document.promoteDocument.mutate({ id });
+    const { token } = await lambdaClient.document.requestSaveAuthorization.mutate({
+      operation: 'promoteDocument',
+      payload: { id },
+    });
+    return lambdaClient.document.promoteDocument.mutate({ id, saveAuthorization: token });
   }
 
   async deleteDocuments(ids: string[]): Promise<void> {

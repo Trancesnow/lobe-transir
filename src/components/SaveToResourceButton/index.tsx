@@ -1,9 +1,9 @@
 'use client';
 
 import { Tooltip } from '@lobehub/ui';
-import { ActionIcon } from '@lobehub/ui/base-ui';
+import { ActionIcon, toast } from '@lobehub/ui/base-ui';
 import { BookmarkPlus } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useEphemeralStatus } from '@/hooks/useEphemeralStatus';
@@ -19,6 +19,7 @@ interface SaveToResourceButtonProps {
 
 const SaveToResourceButton = memo<SaveToResourceButtonProps>(({ id, ids, type = 'file' }) => {
   const { t } = useTranslation('chat');
+  const [saving, setSaving] = useState(false);
   const { markSaved, status } = useEphemeralStatus(ids ?? [id]);
 
   if (!status[id]) return null;
@@ -26,17 +27,27 @@ const SaveToResourceButton = memo<SaveToResourceButtonProps>(({ id, ids, type = 
   return (
     <Tooltip title={t('saveToResource')}>
       <ActionIcon
+        disabled={saving}
         icon={BookmarkPlus}
+        loading={saving}
         size={'small'}
         title={t('saveToResource')}
         onClick={async (e) => {
           e.stopPropagation();
-          if (type === 'document') {
-            await documentService.promoteDocument(id);
-          } else {
-            await fileService.promoteFile(id);
+          if (saving) return;
+          setSaving(true);
+          try {
+            if (type === 'document') {
+              await documentService.promoteDocument(id);
+            } else {
+              await fileService.promoteFile(id);
+            }
+            await markSaved(id);
+          } catch {
+            toast.error(t('resourceSave.failed', { ns: 'file' }));
+          } finally {
+            setSaving(false);
           }
-          await markSaved(id);
         }}
       />
     </Tooltip>

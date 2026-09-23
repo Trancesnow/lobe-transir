@@ -11,6 +11,8 @@ import {
   type UploadFileParams,
 } from '@/types/files';
 
+import { confirmResourceSave } from '../confirmResourceSave';
+
 interface CreateFileParams extends Omit<UploadFileParams, 'url'> {
   knowledgeBaseId?: string;
   parentId?: string;
@@ -33,7 +35,14 @@ export class FileService {
     },
     knowledgeBaseId?: string,
   ): Promise<{ id: string; url: string }> => {
-    return lambdaClient.file.createFile.mutate({ ...params, knowledgeBaseId } as CreateFileParams);
+    const payload = { ...params, knowledgeBaseId } as CreateFileParams & { ephemeral?: boolean };
+    if (payload.ephemeral) return lambdaClient.file.createFile.mutate(payload);
+    await confirmResourceSave(params.name);
+    const { token } = await lambdaClient.file.requestSaveAuthorization.mutate({
+      operation: 'createFile',
+      payload,
+    });
+    return lambdaClient.file.createFile.mutate({ ...payload, saveAuthorization: token });
   };
 
   getFile = async (id: string): Promise<FileItem> => {
@@ -60,7 +69,11 @@ export class FileService {
   };
 
   promoteFile = async (id: string) => {
-    return lambdaClient.file.promoteFile.mutate({ id });
+    const { token } = await lambdaClient.file.requestSaveAuthorization.mutate({
+      operation: 'promoteFile',
+      payload: { id },
+    });
+    return lambdaClient.file.promoteFile.mutate({ id, saveAuthorization: token });
   };
 
   getEphemeralStatus = async (ids: string[]): Promise<Record<string, boolean>> => {
@@ -189,11 +202,15 @@ export class FileService {
     targetWorkspaceId: string | null,
     targetVisibility?: 'private' | 'public',
   ) => {
+    await confirmResourceSave(`${entityType} #${id}`);
+    const payload = { entityType, id, targetVisibility, targetWorkspaceId };
+    const { token } = await lambdaClient.file.requestSaveAuthorization.mutate({
+      operation: 'copyEntityToWorkspace',
+      payload,
+    });
     return lambdaClient.file.copyEntityToWorkspace.mutate({
-      entityType,
-      id,
-      targetVisibility,
-      targetWorkspaceId,
+      ...payload,
+      saveAuthorization: token,
     });
   };
 

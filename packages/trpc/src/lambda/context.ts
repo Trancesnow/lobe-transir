@@ -111,6 +111,7 @@ export interface AuthContext {
   oidcAuth?: OIDCAuth | null;
   oidcClientId?: string;
   resHeaders?: Headers;
+  resourceSaveSession?: boolean;
   /**
    * Origin attribution for spend produced by this call, forwarded to the
    * billing points the procedure reaches.
@@ -135,6 +136,7 @@ export interface AuthContext {
 export const createContextInner = async (params?: {
   /** See {@link AuthContext.actingAgentId} — server-side callers only. */
   actingAgentId?: string | null;
+  resourceSaveSession?: boolean;
   apiKeyScopes?: string[] | null;
   authFailure?: string;
   clientMetadata?: ClientMetadata;
@@ -157,6 +159,7 @@ export const createContextInner = async (params?: {
 
   return {
     actingAgentId: params?.actingAgentId,
+    resourceSaveSession: params?.resourceSaveSession === true,
     apiKeyScopes: params?.apiKeyScopes,
     clientMetadata: params?.clientMetadata || { type: 'unknown' },
     clientIp: params?.clientIp,
@@ -394,6 +397,8 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
     return createContextInner({
       ...commonContext,
       authFailure,
+      resourceSaveSession:
+        !!session?.user?.id && request.headers.get('sec-fetch-site') === 'same-origin',
       traceContext,
       userId,
     });

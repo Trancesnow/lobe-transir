@@ -319,5 +319,12 @@
   "work.type.linearDocument": "Linear 文档",
   "work.type.linearIssue": "Linear Issue",
   "work.type.task": "任务",
-  "work.updatedAt": "更新于 {{date}}"
+  "work.updatedAt": "更新于 {{date}}",
+  "resourceSave": {
+    "title": "保存到资源",
+    "description": "是否将「{{description}}」新增到资源并长期保存？",
+    "cancel": "不保存",
+    "saved": "已保存到资源",
+    "failed": "保存失败，请重试。"
+  }
 }

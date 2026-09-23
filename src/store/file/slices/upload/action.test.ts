@@ -4,6 +4,7 @@ import { fileTypeFromBlob } from 'file-type';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { handleFileUploadError } from '@/business/client/handleFileUploadError';
+import { ResourceSaveCancelledError } from '@/services/confirmResourceSave';
 import { fileService } from '@/services/file';
 import { uploadService } from '@/services/upload';
 import { getAudioDuration } from '@/utils/client/audioDuration';
@@ -1047,6 +1048,24 @@ describe('FileUploadAction', () => {
         vi.spyOn(uploadService, 'uploadFileToS3').mockRejectedValue(new Error('Upload failed'));
 
         await expect(uploadWithProgress({ file: mockFile })).rejects.toThrow('Upload failed');
+      });
+
+      it('releases uploaded bytes when the user declines saving and reports cancellation', async () => {
+        const file = new File(['content'], 'declined.txt', { type: 'text/plain' });
+        vi.mocked(getImageDimensions).mockResolvedValue(undefined);
+        vi.spyOn(fileService, 'checkFileHash').mockResolvedValue({ isExist: false });
+        vi.spyOn(uploadService, 'uploadFileToS3').mockResolvedValue({
+          data: { date: '12345', dirname: '/uploads', filename: 'declined.txt', path: '/uploads/declined.txt' },
+          success: true,
+        });
+        vi.spyOn(fileService, 'createFile').mockRejectedValue(new ResourceSaveCancelledError());
+        const release = vi.spyOn(uploadService, 'releaseUpload').mockResolvedValue(undefined);
+        const onStatusUpdate = vi.fn();
+        await expect(useStore.getState().uploadWithProgress({ file, onStatusUpdate })).resolves.toBeUndefined();
+        expect(release).toHaveBeenCalledWith('/uploads/declined.txt');
+        expect(onStatusUpdate).toHaveBeenCalledWith(expect.objectContaining({
+          value: expect.objectContaining({ status: 'cancelled' }),
+        }));
       });
 
       it('should handle createFile errors', async () => {

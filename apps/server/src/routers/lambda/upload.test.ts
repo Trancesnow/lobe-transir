@@ -22,7 +22,7 @@ const routerMocks = vi.hoisted(() => {
     createPreSignedUploadPartUrl: vi.fn(),
     createPreSignedUrl: vi.fn(),
     fileUploadService: {
-      assertActiveOrLegacy: vi.fn(),
+      assertActive: vi.fn(),
       findLatest: vi.fn(),
       hasAnyLiveSession: vi.fn(),
       model,
@@ -109,7 +109,9 @@ describe('uploadRouter', () => {
     );
     routerMocks.fileUploadService.findLatest.mockResolvedValue(undefined);
     routerMocks.fileUploadService.hasAnyLiveSession.mockResolvedValue(false);
-    routerMocks.fileUploadService.assertActiveOrLegacy.mockResolvedValue(undefined);
+    routerMocks.fileUploadService.assertActive.mockRejectedValue(
+      new TRPCError({ code: 'CONFLICT', message: 'Upload reservation is required' }),
+    );
     routerMocks.fileUploadService.touchActive.mockResolvedValue(undefined);
   });
 
@@ -165,14 +167,18 @@ describe('uploadRouter', () => {
     expect(routerMocks.createPreSignedUrl).not.toHaveBeenCalled();
   });
 
-  it('keeps missing-size requests on the legacy path', async () => {
-    await expect(caller.createS3PreSignedUrl({ pathname: 'files/legacy.bin' })).resolves.toBe(
-      'https://example.com/upload',
-    );
+  it('rejects missing-size requests before creating upload credentials or storage state', async () => {
+    await expect(
+      caller.createS3PreSignedUrl({ pathname: 'files/legacy.bin' } as any),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(
+      caller.createS3MultipartUpload({ pathname: 'files/legacy.bin' } as any),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 
     expect(routerMocks.businessFileUploadCheck).not.toHaveBeenCalled();
     expect(routerMocks.model.create).not.toHaveBeenCalled();
-    expect(routerMocks.createPreSignedUrl).toHaveBeenCalledWith('files/legacy.bin');
+    expect(routerMocks.createPreSignedUrl).not.toHaveBeenCalled();
+    expect(routerMocks.createMultipartUpload).not.toHaveBeenCalled();
   });
 
   it('stores the server-selected multipart size and signs the exact final part length', async () => {
@@ -183,12 +189,20 @@ describe('uploadRouter', () => {
       caller.createS3MultipartUpload({ pathname: 'files/test.bin', size }),
     ).resolves.toEqual({ partSize, uploadId: 'multipart-1' });
 
+    expect(routerMocks.model.create).toHaveBeenCalledWith(
+      expect.objectContaining({ multipartPartSize: partSize, pathname: 'files/test.bin', size }),
+      routerMocks.transactionClient,
+    );
+    expect(routerMocks.model.create.mock.invocationCallOrder[0]).toBeLessThan(
+      routerMocks.createMultipartUpload.mock.invocationCallOrder[0],
+    );
+
     const upload = createUpload({
       multipartPartSize: partSize,
       multipartUploadId: 'multipart-1',
       size,
     });
-    routerMocks.fileUploadService.assertActiveOrLegacy.mockResolvedValue(upload);
+    routerMocks.fileUploadService.assertActive.mockResolvedValue(upload);
     routerMocks.createPreSignedUploadPartUrl.mockResolvedValue('https://example.com/part');
 
     await caller.createS3MultipartUploadPartUrl({
@@ -212,7 +226,7 @@ describe('uploadRouter', () => {
       multipartUploadId: 'multipart-1',
       size: partSize + 5,
     });
-    routerMocks.fileUploadService.assertActiveOrLegacy.mockResolvedValue(upload);
+    routerMocks.fileUploadService.assertActive.mockResolvedValue(upload);
 
     await caller.completeS3MultipartUpload({
       partCount: 2,
@@ -230,8 +244,45 @@ describe('uploadRouter', () => {
     expect(routerMocks.model.markCompleted).toHaveBeenCalledWith(upload.id);
   });
 
+  it('rejects multipart continuation and completion without a reservation', async () => {
+    await expect(
+      caller.createS3MultipartUploadPartUrl({
+        partNumber: 1,
+        pathname: 'files/unreserved.bin',
+        uploadId: 'multipart-1',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    await expect(
+      caller.completeS3MultipartUpload({
+        partCount: 1,
+        pathname: 'files/unreserved.bin',
+        uploadId: 'multipart-1',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(routerMocks.createPreSignedUploadPartUrl).not.toHaveBeenCalled();
+    expect(routerMocks.completeMultipartUpload).not.toHaveBeenCalled();
+    expect(routerMocks.model.markCompleted).not.toHaveBeenCalled();
+  });
+
+  it('does not abort an unreserved multipart upload', async () => {
+    await expect(
+      caller.abortS3MultipartUpload({ pathname: 'files/unreserved.bin', uploadId: 'multipart-1' }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(routerMocks.abortMultipartUpload).not.toHaveBeenCalled();
+  });
+
+  it('releases the owned active multipart upload on cancellation', async () => {
+    routerMocks.fileUploadService.findLatest.mockResolvedValue(
+      createUpload({ multipartUploadId: 'multipart-1' }),
+    );
+    await expect(
+      caller.abortS3MultipartUpload({ pathname: 'files/test.bin', uploadId: 'multipart-1' }),
+    ).resolves.toEqual({ success: true });
+    expect(routerMocks.fileUploadService.release).toHaveBeenCalledWith('files/test.bin');
+  });
+
   it('rejects multipart operations for a different upload id', async () => {
-    routerMocks.fileUploadService.assertActiveOrLegacy.mockResolvedValue(
+    routerMocks.fileUploadService.assertActive.mockResolvedValue(
       createUpload({ multipartPartSize: 32 * 1024 * 1024, multipartUploadId: 'multipart-1' }),
     );
 
@@ -247,7 +298,7 @@ describe('uploadRouter', () => {
   });
 
   it('does not fall back to legacy multipart access for another owned session', async () => {
-    routerMocks.fileUploadService.assertActiveOrLegacy.mockRejectedValue(
+    routerMocks.fileUploadService.assertActive.mockRejectedValue(
       new TRPCError({ code: 'CONFLICT', message: 'Upload pathname belongs to another session' }),
     );
 

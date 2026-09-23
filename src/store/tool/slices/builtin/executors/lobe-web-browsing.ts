@@ -4,10 +4,7 @@
  * Handles web search and page crawling tool calls.
  */
 import { WebBrowsingApiName, WebBrowsingManifest } from '@lobechat/builtin-tool-web-browsing';
-import {
-  type WebBrowsingDocumentService,
-  WebBrowsingExecutionRuntime,
-} from '@lobechat/builtin-tool-web-browsing/executionRuntime';
+import { WebBrowsingExecutionRuntime } from '@lobechat/builtin-tool-web-browsing/executionRuntime';
 import {
   type BuiltinToolContext,
   type BuiltinToolResult,
@@ -16,26 +13,9 @@ import {
 } from '@lobechat/types';
 import { BaseExecutor, SEARCH_SEARXNG_NOT_CONFIG } from '@lobechat/types';
 
-import { agentDocumentService } from '@/services/agentDocument';
 import { searchService } from '@/services/search';
-import { webBrowsingService } from '@/services/webBrowsing';
 
 const searchRuntime = new WebBrowsingExecutionRuntime({ searchService });
-
-const createDocumentService = (ctx: BuiltinToolContext): WebBrowsingDocumentService => ({
-  associateDocument: async (documentId) => {
-    if (!ctx.agentId) return;
-    await agentDocumentService.associateDocument({ agentId: ctx.agentId, documentId });
-  },
-  createDocument: async ({ content, description, title, url }) =>
-    webBrowsingService.upsertCrawledDocument({
-      content,
-      description: description || `Crawled from ${url}`,
-      title,
-      topicId: ctx.topicId ?? undefined,
-      url,
-    }),
-});
 
 class WebBrowsingExecutor extends BaseExecutor<typeof WebBrowsingApiName> {
   readonly identifier = WebBrowsingManifest.identifier;
@@ -110,12 +90,7 @@ class WebBrowsingExecutor extends BaseExecutor<typeof WebBrowsingApiName> {
         return { stop: true, success: false };
       }
 
-      const runtime = new WebBrowsingExecutionRuntime({
-        agentId: ctx.agentId,
-        documentService: ctx.topicId ? createDocumentService(ctx) : undefined,
-        searchService,
-        topicId: ctx.topicId ?? undefined,
-      });
+      const runtime = new WebBrowsingExecutionRuntime({ searchService });
 
       const result = await runtime.crawlMultiPages(params);
 

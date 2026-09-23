@@ -9,6 +9,7 @@ import {
   UPLOAD_FILE_SIZE_LIMIT_ERROR_MESSAGE,
 } from '@lobechat/const';
 import { TRPCError } from '@trpc/server';
+import { sql } from 'drizzle-orm';
 import isEqual from 'fast-deep-equal';
 import pMap from 'p-map';
 import { z } from 'zod';
@@ -27,6 +28,8 @@ import { DOCUMENT_TRANSFER_FOREIGN_ROWS, DocumentModel } from '@/database/models
 import { FileModel } from '@/database/models/file';
 import { KnowledgeBaseModel } from '@/database/models/knowledgeBase';
 import { KnowledgeRepo } from '@/database/repositories/knowledge';
+import { files } from '@/database/schemas';
+import { buildWorkspaceWhere } from '@/database/utils/workspace';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { DocumentService } from '@/server/services/document';
@@ -34,6 +37,11 @@ import { FileService } from '@/server/services/file';
 import { downloadRemoteImage } from '@/server/services/file/downloadRemoteImage';
 import { FileUploadService } from '@/server/services/fileUpload';
 import { assertCanPerformResourceAction } from '@/server/services/resourcePermission';
+import {
+  consumeResourceSaveAuthorization,
+  issueResourceSaveAuthorization,
+  markAuthorizedResourceSaveWorkspace,
+} from '@/server/services/resourceSaveAuthorization';
 import { hasWorkspaceScopedPermission } from '@/server/services/workspacePermission';
 import { createResourceContentPreview } from '@/server/utils/resourceContentPreview';
 import { AsyncTaskStatus, AsyncTaskType, type IAsyncTaskError } from '@/types/asyncTask';
@@ -187,26 +195,98 @@ const isStoredObjectAvailable = async (fileService: FileService, url: string): P
   }
 };
 
-const fileProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
-  const { ctx } = opts;
-  const wsId = ctx.workspaceId ?? undefined;
+const createFileSaveInputSchema = UploadFileSchema.omit({ url: true }).extend({
+        saveAuthorization: z.string().uuid().optional(),
+        ephemeral: z.boolean().optional(),
+        parentId: z.string().optional(),
+        url: z.string(),
+        visibility: z.enum(['private', 'public']).optional(),
+      });
 
-  return opts.next({
-    ctx: {
-      asyncTaskModel: new AsyncTaskModel(ctx.serverDB, ctx.userId, wsId),
-      chunkModel: new ChunkModel(ctx.serverDB, ctx.userId, wsId),
-      documentModel: new DocumentModel(ctx.serverDB, ctx.userId, wsId),
-      documentService: new DocumentService(ctx.serverDB, ctx.userId, wsId),
-      fileModel: new FileModel(ctx.serverDB, ctx.userId, wsId),
-      fileService: new FileService(ctx.serverDB, ctx.userId, wsId),
-      fileUploadService: new FileUploadService(ctx.serverDB, ctx.userId, wsId),
-      knowledgeBaseModel: new KnowledgeBaseModel(ctx.serverDB, ctx.userId, wsId),
-      knowledgeRepo: new KnowledgeRepo(ctx.serverDB, ctx.userId, wsId),
-    },
+const fileProcedure = wsCompatProcedure
+  .use(serverDatabase)
+  .use(async (opts) => {
+    const operation = opts.path.split('.').at(-1);
+    if (
+      ![
+        'createDocument',
+        'createDocuments',
+        'createFile',
+        'copyEntityToWorkspace',
+        'promoteDocument',
+        'promoteFile',
+      ].includes(operation ?? '')
+    ) {
+      return opts.next();
+    }
+    return opts.ctx.serverDB.transaction(async (transaction) => {
+      const result = await opts.next({
+        ctx: { serverDB: transaction as unknown as typeof opts.ctx.serverDB },
+      });
+      // TRPC returns errors as values; throwing is required to roll back the consumed grant.
+      if (!result.ok) throw result.error;
+      return result;
+    });
+  })
+  .use(async (opts) => {
+    const { ctx } = opts;
+    const wsId = ctx.workspaceId ?? undefined;
+
+    return opts.next({
+      ctx: {
+        asyncTaskModel: new AsyncTaskModel(ctx.serverDB, ctx.userId, wsId),
+        chunkModel: new ChunkModel(ctx.serverDB, ctx.userId, wsId),
+        documentModel: new DocumentModel(ctx.serverDB, ctx.userId, wsId),
+        documentService: new DocumentService(ctx.serverDB, ctx.userId, wsId),
+        fileModel: new FileModel(ctx.serverDB, ctx.userId, wsId),
+        fileService: new FileService(ctx.serverDB, ctx.userId, wsId),
+        fileUploadService: new FileUploadService(ctx.serverDB, ctx.userId, wsId),
+        knowledgeBaseModel: new KnowledgeBaseModel(ctx.serverDB, ctx.userId, wsId),
+        knowledgeRepo: new KnowledgeRepo(ctx.serverDB, ctx.userId, wsId),
+      },
+    });
   });
+
+const copyEntitySaveInputSchema = z.object({
+  entityType: fileTransferEntityTypeSchema,
+  id: z.string(),
+  saveAuthorization: z.string().uuid().optional(),
+  targetVisibility: z.enum(['private', 'public']).optional(),
+  targetWorkspaceId: z.string().nullable(),
 });
 
 export const fileRouter = router({
+  requestSaveAuthorization: fileProcedure
+    .input(
+      z.object({
+        operation: z.enum(['createFile', 'copyEntityToWorkspace', 'promoteFile']),
+        payload: z.unknown(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      let payload = input.payload;
+      if (input.operation === 'createFile') {
+        const { saveAuthorization: _ignored, ...parsed } = createFileSaveInputSchema.parse(payload);
+        payload = parsed;
+      }
+      if (input.operation === 'promoteFile') {
+        const { id } = z.object({ id: z.string() }).parse(payload);
+        const resource = await ctx.fileModel.findById(id);
+        if (!resource) throw new TRPCError({ code: 'NOT_FOUND', message: 'Resource not found' });
+        payload = { id, resource };
+      }
+      if (input.operation === 'copyEntityToWorkspace') {
+        const parsed = copyEntitySaveInputSchema.parse(payload);
+        const snapshot =
+          parsed.entityType === 'file'
+            ? await ctx.fileModel.findById(parsed.id)
+            : await ctx.documentModel.findById(parsed.id);
+        if (!snapshot) throw new TRPCError({ code: 'NOT_FOUND', message: 'Resource not found' });
+        payload = { ...parsed, snapshot };
+      }
+      return issueResourceSaveAuthorization(ctx, input.operation, payload);
+    }),
+
   checkFileHash: fileProcedure
     .use(withScopedPermission('file:upload'))
     .use(checkFileStorageUsage)
@@ -223,15 +303,11 @@ export const fileRouter = router({
 
   createFile: fileProcedure
     .use(withScopedPermission('file:upload'))
-    .input(
-      UploadFileSchema.omit({ url: true }).extend({
-        ephemeral: z.boolean().optional(),
-        parentId: z.string().optional(),
-        url: z.string(),
-        visibility: z.enum(['private', 'public']).optional(),
-      }),
-    )
+    .input(createFileSaveInputSchema)
     .mutation(async ({ ctx, input }) => {
+      const { saveAuthorization, ...savePayload } = input;
+      if (!input.ephemeral)
+        await consumeResourceSaveAuthorization(ctx, 'createFile', savePayload, saveAuthorization);
       const metadata = input.ephemeral ? { ...input.metadata, ephemeral: true } : input.metadata;
       const existingFile = await ctx.fileModel.checkHash(input.hash!);
       const { isExist } = existingFile;
@@ -907,10 +983,22 @@ export const fileRouter = router({
 
   promoteFile: fileProcedure
     .use(withScopedPermission('file:update'))
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), saveAuthorization: z.string().uuid().optional() }))
     .mutation(async ({ input, ctx }) => {
+      await ctx.serverDB.execute(
+        sql`SELECT id FROM files WHERE id = ${input.id} AND ${buildWorkspaceWhere(
+          { userId: ctx.userId, workspaceId: ctx.workspaceId ?? undefined }, files,
+        )} FOR UPDATE`,
+      );
       const existing = await ctx.fileModel.findById(input.id);
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'File not found' });
+      await assertFileNotInRestrictedKnowledgeBase(ctx, input.id);
+      await consumeResourceSaveAuthorization(
+        ctx,
+        'promoteFile',
+        { id: input.id, resource: existing },
+        input.saveAuthorization,
+      );
 
       const metadata = (existing.metadata ?? {}) as Record<string, unknown>;
       // 幂等：非临时文件直接成功返回
@@ -1211,15 +1299,33 @@ export const fileRouter = router({
 
   copyEntityToWorkspace: fileProcedure
     .use(withScopedPermission('file:upload'))
-    .input(
-      z.object({
-        entityType: fileTransferEntityTypeSchema,
-        id: z.string(),
-        targetVisibility: z.enum(['private', 'public']).optional(),
-        targetWorkspaceId: z.string().nullable(),
-      }),
-    )
+    .input(copyEntitySaveInputSchema)
     .mutation(async ({ ctx, input }) => {
+      // Lock the source row before re-reading the snapshot: the grant must bind
+      // the same content that is actually copied.
+      if (input.entityType === 'file') {
+        await ctx.serverDB.execute(
+          sql`SELECT id FROM files WHERE id = ${input.id} AND user_id = ${ctx.userId} FOR UPDATE`,
+        );
+      } else {
+        await ctx.serverDB.execute(
+          sql`SELECT id FROM documents WHERE id = ${input.id} AND user_id = ${ctx.userId} FOR UPDATE`,
+        );
+      }
+      const snapshot =
+        input.entityType === 'file'
+          ? await ctx.fileModel.findById(input.id)
+          : await ctx.documentModel.findById(input.id);
+      const { saveAuthorization, ...savePayload } = input;
+      await consumeResourceSaveAuthorization(
+        ctx,
+        'copyEntityToWorkspace',
+        { ...savePayload, snapshot },
+        saveAuthorization,
+      );
+      // The copied rows live in the target workspace, so the trigger marker
+      // must match it rather than the caller's current workspace.
+      await markAuthorizedResourceSaveWorkspace(ctx, input.targetWorkspaceId);
       if (input.targetWorkspaceId) {
         const canWriteTarget = await hasWorkspaceScopedPermission({
           action: 'FILE_UPLOAD',

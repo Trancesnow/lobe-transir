@@ -29,6 +29,15 @@ const mocks = vi.hoisted(() => ({
   updateDocument: vi.fn(),
 }));
 
+vi.mock('@/database/core/db-adaptor', () => ({
+  getServerDB: vi.fn().mockImplementation(async () => {
+    const database = {
+      execute: vi.fn().mockResolvedValue({ rows: [{ token: 'saved' }] }),
+      transaction: async (callback: (transaction: unknown) => unknown): Promise<unknown> => callback(database),
+    };
+    return database;
+  }),
+}));
 vi.mock('@/business/server/document-mention/notifyActivity', () => ({
   notifyDocumentMention: mocks.notifyDocumentMention,
 }));
@@ -232,7 +241,8 @@ describe('documentRouter transferDocument', () => {
 describe('documentRouter createDocument under a knowledge-base folder', () => {
   const caller = () =>
     documentRouter.createCaller({
-      serverDB: {},
+      serverDB: { execute: vi.fn().mockResolvedValue({ rows: [{ token: 'saved' }] }) },
+      resourceSaveSession: true,
       userId: 'member-1',
       workspaceId: 'ws-1',
       workspaceRole: 'member',
@@ -254,10 +264,21 @@ describe('documentRouter createDocument under a knowledge-base folder', () => {
     mocks.createDocument.mockResolvedValue({ id: 'docs_new', visibility: 'public' });
   });
 
+  it('rejects unconfirmed creation before writing a document', async () => {
+    await expect(caller().createDocument({ title: 'Not approved' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    expect(mocks.createDocument).not.toHaveBeenCalled();
+  });
+
   it("lets a member create under another creator's visible parent", async () => {
     mocks.findById.mockResolvedValue({ id: 'folder-1', ...kbFolder });
 
-    await caller().createDocument({ parentId: 'folder-1', title: 'Doc' });
+    await caller().createDocument({
+      saveAuthorization: '00000000-0000-4000-8000-000000000001',
+      parentId: 'folder-1',
+      title: 'Doc',
+    });
 
     expect(mocks.assertContentsNotInRestrictedKnowledgeBase).toHaveBeenCalledWith(
       expect.anything(),
@@ -274,7 +295,11 @@ describe('documentRouter createDocument under a knowledge-base folder', () => {
       metadata: { knowledgeBaseId: 'kb-1' },
     });
 
-    await caller().createDocument({ parentId: 'folder-1', title: 'Doc' });
+    await caller().createDocument({
+      saveAuthorization: '00000000-0000-4000-8000-000000000001',
+      parentId: 'folder-1',
+      title: 'Doc',
+    });
 
     expect(mocks.assertContentsNotInRestrictedKnowledgeBase).toHaveBeenCalledWith(
       expect.anything(),
@@ -289,7 +314,11 @@ describe('documentRouter createDocument under a knowledge-base folder', () => {
     );
 
     await expect(
-      caller().createDocument({ parentId: 'folder-1', title: 'Doc' }),
+      caller().createDocument({
+        saveAuthorization: '00000000-0000-4000-8000-000000000001',
+        parentId: 'folder-1',
+        title: 'Doc',
+      }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(mocks.createDocument).not.toHaveBeenCalled();
   });
@@ -302,7 +331,11 @@ describe('documentRouter createDocument under a knowledge-base folder', () => {
       metadata: null,
     });
 
-    await caller().createDocument({ parentId: 'folder-1', title: 'Doc' });
+    await caller().createDocument({
+      saveAuthorization: '00000000-0000-4000-8000-000000000001',
+      parentId: 'folder-1',
+      title: 'Doc',
+    });
 
     expect(mocks.assertContentsNotInRestrictedKnowledgeBase).toHaveBeenCalledWith(
       expect.anything(),
@@ -317,7 +350,11 @@ describe('documentRouter createDocument under a knowledge-base folder', () => {
       knowledgeBaseId: 'kb-1',
       metadata: null,
     });
-    await caller().createDocument({ parentId: 'page-1', title: 'Doc' });
+    await caller().createDocument({
+      saveAuthorization: '00000000-0000-4000-8000-000000000001',
+      parentId: 'page-1',
+      title: 'Doc',
+    });
 
     expect(mocks.assertContentsNotInRestrictedKnowledgeBase).toHaveBeenCalledWith(
       expect.anything(),
@@ -334,7 +371,11 @@ describe('documentRouter createDocument under a knowledge-base folder', () => {
     });
     mocks.findById.mockResolvedValue({ id: 'folder-1', ...kbFolder });
     await expect(
-      caller().createDocument({ parentId: 'folder-1', title: 'Doc' }),
+      caller().createDocument({
+        saveAuthorization: '00000000-0000-4000-8000-000000000001',
+        parentId: 'folder-1',
+        title: 'Doc',
+      }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(mocks.assertContentsNotInRestrictedKnowledgeBase).not.toHaveBeenCalled();
     expect(mocks.createDocument).not.toHaveBeenCalled();

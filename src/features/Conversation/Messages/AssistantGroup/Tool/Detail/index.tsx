@@ -8,6 +8,7 @@ import AbortResponse from './AbortResponse';
 import LoadingPlaceholder from './LoadingPlaceholder';
 import RejectedResponse from './RejectedResponse';
 import ToolRender from './Render';
+import SaveWebPages from './SaveWebPages';
 
 interface RenderProps {
   apiName: string;
@@ -108,6 +109,10 @@ const Render = memo<RenderProps>(
     return (
       <Suspense fallback={placeholder}>
         <Flexbox gap={8}>
+          {!disableEditing && !result.error && identifier === 'lobe-web-browsing' &&
+            (apiName === 'crawlSinglePage' || apiName === 'crawlMultiPages') && (
+              <SaveWebPages state={result.state} />
+            )}
           <ToolRender
             content={result.content || ''}
             messageId={toolMessageId}

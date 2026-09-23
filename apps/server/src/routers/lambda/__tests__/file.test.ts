@@ -12,7 +12,10 @@ import { TransferErrorCode } from '@/types/transferError';
 const buildMockFileAccessUrl = ({ id }: { id: string }) => `https://lobehub.com/f/${id}`;
 
 const routerMocks = vi.hoisted(() => {
-  const transactionClient = {};
+  const transactionClient = {
+    execute: vi.fn().mockResolvedValue({ rows: [{ token: 'saved' }] }),
+    transaction: vi.fn(async (callback: (transaction: unknown) => unknown): Promise<unknown> => callback(transactionClient)),
+  };
 
   return {
     businessFileUploadCheck: vi.fn(),
@@ -116,6 +119,7 @@ function createCallerWithCtx(partialCtx: any = {}) {
       }),
     } as any,
     userId: 'test-user',
+    resourceSaveSession: true,
     asyncTaskModel,
     chunkModel,
     documentModel,
@@ -378,6 +382,7 @@ describe('fileRouter', () => {
     routerMocks.businessFileTransferStorageCheck.mockResolvedValue(undefined);
     routerMocks.hasWorkspaceScopedPermission.mockResolvedValue(true);
     mockKnowledgeBaseFindById.mockResolvedValue({ id: 'kb-1', visibility: 'public' });
+    mockFileModelFindById.mockResolvedValue(undefined);
     mockDocumentModelFindById.mockResolvedValue(undefined);
     mockDocumentModelFindBySlug.mockResolvedValue(undefined);
 
@@ -469,6 +474,7 @@ describe('fileRouter', () => {
       ctx.fileModel.checkHash.mockResolvedValue(undefined);
       await expect(
         caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
           hash: 'test-hash',
           fileType: 'text',
           name: 'test.txt',
@@ -484,6 +490,7 @@ describe('fileRouter', () => {
 
       await expect(
         caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
           fileType: 'text',
           hash: 'test-hash',
           metadata: {},
@@ -502,6 +509,7 @@ describe('fileRouter', () => {
       mockFileModelCreate.mockResolvedValue({ id: 'new-file-id' });
 
       const result = await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         hash: 'test-hash',
         fileType: 'text',
         name: 'test.txt',
@@ -521,6 +529,7 @@ describe('fileRouter', () => {
       mockFileModelCreate.mockResolvedValue({ id: 'new-file-id' });
 
       await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         hash: 'test-hash',
         fileType: 'image/png',
         metadata: {},
@@ -542,6 +551,7 @@ describe('fileRouter', () => {
       mockFileModelCreate.mockResolvedValue({ id: 'new-file-id' });
 
       await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         hash: 'test-hash',
         fileType: 'image/png',
         metadata: {},
@@ -571,6 +581,7 @@ describe('fileRouter', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(function () {});
 
       await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         hash: 'test-hash',
         fileType: 'text',
         metadata: { path: 'new/path.txt' },
@@ -608,6 +619,7 @@ describe('fileRouter', () => {
       });
 
       await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         hash: 'test-hash',
         fileType: 'text',
         metadata: { path: 'new/path.txt' },
@@ -629,6 +641,7 @@ describe('fileRouter', () => {
       mockFileModelCreate.mockResolvedValue({ id: 'new-file-id' });
 
       await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         hash: 'test-hash',
         fileType: 'text',
         name: 'test.txt',
@@ -670,6 +683,7 @@ describe('fileRouter', () => {
       });
 
       await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         fileType: 'text/plain',
         hash: 'test-hash',
         metadata: {},
@@ -704,6 +718,7 @@ describe('fileRouter', () => {
 
       await expect(
         caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
           fileType: 'text/plain',
           hash: 'test-hash',
           metadata: {},
@@ -723,6 +738,7 @@ describe('fileRouter', () => {
 
       await expect(
         caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
           fileType: 'text/plain',
           hash: 'test-hash',
           metadata: {},
@@ -760,6 +776,7 @@ describe('fileRouter', () => {
 
       await expect(
         caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
           fileType: 'text/plain',
           hash: 'test-hash',
           metadata: {},
@@ -782,6 +799,7 @@ describe('fileRouter', () => {
       mockFileModelCreate.mockResolvedValue({ id: 'new-file-id' });
 
       await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         hash: 'test-hash',
         fileType: 'text',
         name: 'test.txt',
@@ -803,6 +821,7 @@ describe('fileRouter', () => {
       mockFileModelCreate.mockResolvedValue({ id: 'new-file-id' });
 
       await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         hash: 'test-hash',
         fileType: 'text',
         knowledgeBaseId: 'kb-1',
@@ -831,6 +850,7 @@ describe('fileRouter', () => {
 
       await expect(
         caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
           hash: 'test-hash',
           fileType: 'text',
           knowledgeBaseId: 'missing-kb',
@@ -855,6 +875,7 @@ describe('fileRouter', () => {
 
       // Client claims file is only 100 bytes (attempting quota bypass)
       await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         hash: 'test-hash',
         fileType: 'text',
         name: 'test.txt',
@@ -885,6 +906,7 @@ describe('fileRouter', () => {
 
       await expect(
         caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
           hash: 'test-hash',
           fileType: 'application/octet-stream',
           metadata: {},
@@ -907,6 +929,7 @@ describe('fileRouter', () => {
       mockFileServiceGetFileMetadata.mockRejectedValue(new Error('File not found in S3'));
 
       const result = await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         hash: 'test-hash',
         fileType: 'text',
         name: 'test.txt',
@@ -936,6 +959,7 @@ describe('fileRouter', () => {
 
       await expect(
         caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
           hash: 'test-hash',
           fileType: 'text',
           name: 'test.txt',
@@ -955,6 +979,7 @@ describe('fileRouter', () => {
       });
 
       await caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
         hash: 'test-hash',
         fileType: 'text',
         name: 'test.txt',
@@ -982,6 +1007,7 @@ describe('fileRouter', () => {
 
       await expect(
         caller.createFile({
+          saveAuthorization: '00000000-0000-4000-8000-000000000001',
           hash: 'test-hash',
           fileType: 'text',
           name: 'test.txt',
@@ -1528,6 +1554,8 @@ describe('fileRouter', () => {
   });
 
   describe('copyEntityToWorkspace', () => {
+    const grant = '00000000-0000-4000-8000-000000000001';
+
     it('should check target storage before copying a file resource', async () => {
       mockFileModelFindById.mockResolvedValue({ id: 'file-1', size: 2048 });
       mockFileModelCopyToWorkspace.mockResolvedValue({ fileId: 'file-new' });
@@ -1535,6 +1563,7 @@ describe('fileRouter', () => {
       await caller.copyEntityToWorkspace({
         entityType: 'file',
         id: 'file-1',
+        saveAuthorization: grant,
         targetWorkspaceId: null,
       });
 
@@ -1559,6 +1588,7 @@ describe('fileRouter', () => {
       await caller.copyEntityToWorkspace({
         entityType: 'document',
         id: 'doc-1',
+        saveAuthorization: grant,
         targetWorkspaceId: null,
       });
 
@@ -1580,16 +1610,16 @@ describe('fileRouter', () => {
   });
 
   describe('removeFileAsyncTask', () => {
-    it('should do nothing when file not found', async () => {
-      ctx.fileModel.findById.mockResolvedValue(null);
+    it('should reject when file not found', async () => {
+      mockFileModelFindById.mockResolvedValue(null);
 
-      await caller.removeFileAsyncTask({ id: 'test-id', type: 'chunk' });
+      await expect(caller.removeFileAsyncTask({ id: 'test-id', type: 'chunk' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
 
       expect(ctx.asyncTaskModel.delete).not.toHaveBeenCalled();
     });
 
     it('should do nothing when task id is missing', async () => {
-      ctx.fileModel.findById.mockResolvedValue(mockFile);
+      mockFileModelFindById.mockResolvedValue(mockFile);
 
       await caller.removeFileAsyncTask({ id: 'test-id', type: 'embedding' });
 

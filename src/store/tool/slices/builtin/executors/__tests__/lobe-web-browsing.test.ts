@@ -11,6 +11,11 @@ import { webBrowsing } from '../lobe-web-browsing';
 // Mock searchService
 const mockSearch = vi.fn();
 const mockCrawlPages = vi.fn();
+const mockSaveCrawledDocument = vi.hoisted(() => vi.fn());
+
+vi.mock('@/services/webBrowsing', () => ({
+  webBrowsingService: { upsertCrawledDocument: mockSaveCrawledDocument },
+}));
 
 vi.mock('@/services/search', () => ({
   searchService: {
@@ -194,6 +199,22 @@ describe('WebBrowsingExecutor', () => {
   });
 
   describe('crawlMultiPages', () => {
+    it('does not save a crawled page even with an active topic and agent', async () => {
+      mockCrawlPages.mockResolvedValue({
+        results: [{ data: { content: 'Article body', title: 'Article', url: 'https://example.com' } }],
+      });
+
+      const result = await webBrowsing.invoke(
+        WebBrowsingApiName.crawlMultiPages,
+        { urls: ['https://example.com'] },
+        createContext({ agentId: 'agent-1', topicId: 'topic-1' }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain('Article body');
+      expect(mockSaveCrawledDocument).not.toHaveBeenCalled();
+    });
+
     it('should return crawl results on success', async () => {
       const mockResponse = {
         results: [

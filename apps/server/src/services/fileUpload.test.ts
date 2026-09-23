@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FileUploadModel } from '@/database/models/fileUpload';
 
-import { FileUploadService, sweepFileUploads } from './fileUpload';
+import { FILE_UPLOAD_SESSION_TTL, FileUploadService, sweepFileUploads } from './fileUpload';
 
 const upload = {
   completedAt: null,
@@ -65,13 +65,50 @@ describe('sweepFileUploads', () => {
 });
 
 describe('FileUploadService', () => {
+  it('renews and returns the owned active reservation', async () => {
+    const service = new FileUploadService({} as any, 'user-1');
+    const active = { ...upload, status: 'active' as const };
+    const touchActive = vi.spyOn(service.model, 'touchActive').mockResolvedValue(active);
+    const startedAt = Date.now();
+
+    await expect(service.assertActive(upload.pathname)).resolves.toBe(active);
+    expect(touchActive).toHaveBeenCalledWith(upload.pathname, expect.any(Date));
+    expect(touchActive.mock.calls[0][1].getTime()).toBeGreaterThanOrEqual(
+      startedAt + FILE_UPLOAD_SESSION_TTL,
+    );
+  });
+
+  it.each(['cleaning', 'settled', 'released', 'expired'] as const)(
+    'rejects a %s reservation',
+    async (status) => {
+      const service = new FileUploadService({} as any, 'user-1');
+      vi.spyOn(service.model, 'touchActive').mockResolvedValue(undefined);
+      vi.spyOn(service.model, 'findLatestByPathname').mockResolvedValue({ ...upload, status });
+
+      await expect(service.assertActive(upload.pathname)).rejects.toMatchObject({
+        code: 'CONFLICT',
+      });
+    },
+  );
+
+  it('rejects an upload pathname with no reservation', async () => {
+    const service = new FileUploadService({} as any, 'user-1');
+    vi.spyOn(service.model, 'touchActive').mockResolvedValue(undefined);
+    vi.spyOn(service.model, 'findLatestByPathname').mockResolvedValue(undefined);
+    vi.spyOn(FileUploadModel, 'hasLivePathname').mockResolvedValue(false);
+
+    await expect(service.assertActive('files/unreserved.bin')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+  });
+
   it("does not treat another owner's reserved pathname as a legacy upload", async () => {
     const service = new FileUploadService({} as any, 'user-1');
     vi.spyOn(service.model, 'touchActive').mockResolvedValue(undefined);
     vi.spyOn(service.model, 'findLatestByPathname').mockResolvedValue(undefined);
     vi.spyOn(FileUploadModel, 'hasLivePathname').mockResolvedValue(true);
 
-    await expect(service.assertActiveOrLegacy('files/owned-by-user-2')).rejects.toMatchObject({
+    await expect(service.assertActive('files/owned-by-user-2')).rejects.toMatchObject({
       code: 'CONFLICT',
     });
   });

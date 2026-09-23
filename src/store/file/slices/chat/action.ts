@@ -296,6 +296,7 @@ export class FileActionImpl {
 
       try {
         fileResult = await this.#get().uploadWithProgress({
+          ephemeral: true,
           file,
           onStatusUpdate: dispatchChatUploadFileList,
         });

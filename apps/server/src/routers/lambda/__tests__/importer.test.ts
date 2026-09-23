@@ -9,7 +9,7 @@ const mockGetFileContent = vi.fn();
 const mockDeleteFile = vi.fn();
 const mockImportData = vi.fn();
 const mockImportPgData = vi.fn();
-const mockAssertActiveOrLegacy = vi.fn();
+const mockAssertActive = vi.fn();
 const mockReleaseBestEffort = vi.fn();
 
 vi.mock('@/database/repositories/dataImporter', () => ({
@@ -33,7 +33,7 @@ vi.mock('@/server/services/file', () => ({
 vi.mock('@/server/services/fileUpload', () => ({
   FileUploadService: vi.fn().mockImplementation(function () {
     return {
-      assertActiveOrLegacy: mockAssertActiveOrLegacy,
+      assertActive: mockAssertActive,
       releaseBestEffort: mockReleaseBestEffort,
     };
   }),
@@ -66,7 +66,7 @@ describe('importerRouter', () => {
   };
 
   beforeEach(() => {
-    mockAssertActiveOrLegacy.mockResolvedValue(undefined);
+    mockAssertActive.mockResolvedValue({ id: 'upload-1', status: 'active' });
     mockGetFileContent.mockResolvedValue(mockFileContent);
     mockImportData.mockResolvedValue(mockImportResult);
     mockImportPgData.mockResolvedValue(mockImportResult);
@@ -82,6 +82,20 @@ describe('importerRouter', () => {
   };
 
   describe('importByFile', () => {
+    it('rejects unreserved paths before reading or importing their contents', async () => {
+      mockAssertActive.mockRejectedValue(
+        new TRPCError({ code: 'CONFLICT', message: 'Upload reservation is required' }),
+      );
+      const caller = importerRouter.createCaller(ctx);
+
+      await expect(caller.importByFile({ pathname: 'test.json' })).rejects.toMatchObject({
+        code: 'CONFLICT',
+      });
+      expect(mockGetFileContent).not.toHaveBeenCalled();
+      expect(mockImportData).not.toHaveBeenCalled();
+      expect(mockDeleteFile).not.toHaveBeenCalled();
+    });
+
     it('should successfully import file data', async () => {
       const caller = importerRouter.createCaller(ctx);
 
@@ -90,11 +104,12 @@ describe('importerRouter', () => {
       expect(result).toEqual(mockImportResult);
       expect(mockGetFileContent).toHaveBeenCalledWith('test.json');
       expect(mockImportData).toHaveBeenCalledWith(JSON.parse(mockFileContent));
-      expect(mockDeleteFile).toHaveBeenCalledWith('test.json');
+      expect(mockReleaseBestEffort).toHaveBeenCalledWith('test.json');
+      expect(mockDeleteFile).not.toHaveBeenCalled();
     });
 
     it('releases a reserved temporary upload after importing it', async () => {
-      mockAssertActiveOrLegacy.mockResolvedValue({ id: 'upload-1', status: 'active' });
+      mockAssertActive.mockResolvedValue({ id: 'upload-1', status: 'active' });
       const caller = importerRouter.createCaller(ctx);
 
       await caller.importByFile({ pathname: 'test.json' });

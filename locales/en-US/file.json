@@ -319,5 +319,12 @@
   "work.type.linearDocument": "Linear Document",
   "work.type.linearIssue": "Linear Issue",
   "work.type.task": "Task",
-  "work.updatedAt": "Updated {{date}}"
+  "work.updatedAt": "Updated {{date}}",
+  "resourceSave": {
+    "title": "Save to resources",
+    "description": "Save “{{description}}” as a new resource for long-term storage?",
+    "cancel": "Do not save",
+    "saved": "Saved to resources",
+    "failed": "Could not save. Please try again."
+  }
 }

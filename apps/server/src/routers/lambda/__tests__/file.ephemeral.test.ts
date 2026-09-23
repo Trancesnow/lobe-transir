@@ -4,12 +4,18 @@ import { documentRouter } from '@/server/routers/lambda/document';
 import { fileRouter } from '@/server/routers/lambda/file';
 
 const mocks = vi.hoisted(() => ({
+  execute: vi.fn().mockResolvedValue({ rows: [{ token: 'saved' }] }),
+  restrictedFile: vi.fn(),
+  restrictedDocuments: vi.fn(),
   documentModel: {
+    copyToWorkspace: vi.fn(),
+    countFileUsageInSubtree: vi.fn(),
     findById: vi.fn(),
     findByIds: vi.fn(),
     update: vi.fn(),
   },
   fileModel: {
+    copyToWorkspace: vi.fn(),
     findById: vi.fn(),
     findByIds: vi.fn(),
     update: vi.fn(),
@@ -22,7 +28,11 @@ vi.mock('@/config/db', () => ({
 
 vi.mock('@/database/core/db-adaptor', () => ({
   getServerDB: vi.fn(function () {
-    return {};
+    const database = {
+      execute: mocks.execute,
+      transaction: async (callback: (transaction: unknown) => unknown): Promise<unknown> => callback(database),
+    };
+    return database;
   }),
 }));
 
@@ -89,7 +99,17 @@ vi.mock('@/database/models/document', () => ({
   }),
 }));
 
-const createCtx = () => ({ serverDB: {}, userId: 'user-1', workspaceId: null }) as any;
+vi.mock('@/server/services/knowledgeBaseAccess', () => ({
+  assertFileNotInRestrictedKnowledgeBase: mocks.restrictedFile,
+  assertContentsNotInRestrictedKnowledgeBase: mocks.restrictedDocuments,
+}));
+
+vi.mock('@/server/services/workspacePermission', () => ({
+  hasWorkspaceScopedPermission: vi.fn(async () => true),
+}));
+
+const saveAuthorization = '00000000-0000-4000-8000-000000000001';
+const createCtx = () => ({ resourceSaveSession: true, serverDB: {}, userId: 'user-1', workspaceId: null }) as any;
 
 describe('fileRouter ephemeral procedures', () => {
   beforeEach(() => {
@@ -99,13 +119,26 @@ describe('fileRouter ephemeral procedures', () => {
   const fileCaller = () => fileRouter.createCaller(createCtx());
 
   describe('promoteFile', () => {
+    it('rejects a missing grant before updating the file', async () => {
+      mocks.fileModel.findById.mockResolvedValue({ id: 'file-1', metadata: { ephemeral: true } });
+      await expect(fileCaller().promoteFile({ id: 'file-1' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(mocks.fileModel.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects API callers even with a grant', async () => {
+      mocks.fileModel.findById.mockResolvedValue({ id: 'file-1', metadata: { ephemeral: true } });
+      const caller = fileRouter.createCaller({ ...createCtx(), apiKeyScopes: null });
+      await expect(caller.promoteFile({ id: 'file-1', saveAuthorization })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(mocks.fileModel.update).not.toHaveBeenCalled();
+    });
+
     it('should remove only the ephemeral key and keep other metadata', async () => {
       mocks.fileModel.findById.mockResolvedValue({
         id: 'file-1',
         metadata: { ephemeral: true, source: 'page-editor' },
       });
 
-      const result = await fileCaller().promoteFile({ id: 'file-1' });
+      const result = await fileCaller().promoteFile({ saveAuthorization, id: 'file-1' });
 
       expect(result).toEqual({ success: true });
       expect(mocks.fileModel.update).toHaveBeenCalledWith('file-1', {
@@ -119,7 +152,7 @@ describe('fileRouter ephemeral procedures', () => {
         metadata: { source: 'page-editor' },
       });
 
-      const result = await fileCaller().promoteFile({ id: 'file-2' });
+      const result = await fileCaller().promoteFile({ saveAuthorization, id: 'file-2' });
 
       expect(result).toEqual({ success: true });
       expect(mocks.fileModel.update).not.toHaveBeenCalled();
@@ -128,9 +161,52 @@ describe('fileRouter ephemeral procedures', () => {
     it('should throw NOT_FOUND when the file does not exist', async () => {
       mocks.fileModel.findById.mockResolvedValue(undefined);
 
-      await expect(fileCaller().promoteFile({ id: 'missing' })).rejects.toMatchObject({
+      await expect(fileCaller().promoteFile({ saveAuthorization, id: 'missing' })).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
+    });
+  });
+
+  describe('copyEntityToWorkspace', () => {
+    it('rejects a copy without a consumed user grant', async () => {
+      mocks.fileModel.findById.mockResolvedValue({ id: 'file-1', metadata: {}, size: 1 });
+      await expect(
+        fileCaller().copyEntityToWorkspace({ entityType: 'file', id: 'file-1', targetWorkspaceId: null }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(mocks.fileModel.copyToWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('copies an unchanged file after a one-time grant', async () => {
+      const file = { id: 'file-1', metadata: {}, size: 1 };
+      mocks.fileModel.findById.mockResolvedValue(file);
+      const { token } = await fileCaller().requestSaveAuthorization({
+        operation: 'copyEntityToWorkspace',
+        payload: { entityType: 'file', id: 'file-1', targetWorkspaceId: null },
+      });
+      await fileCaller().copyEntityToWorkspace({
+        entityType: 'file',
+        id: 'file-1',
+        saveAuthorization: token,
+        targetWorkspaceId: null,
+      });
+      expect(mocks.fileModel.copyToWorkspace).toHaveBeenCalled();
+    });
+
+    it('copies a folder after a grant and checks subtree size', async () => {
+      const folder = { fileType: 'custom/folder', id: 'doc-1', metadata: {} };
+      mocks.documentModel.findById.mockResolvedValue(folder);
+      mocks.documentModel.countFileUsageInSubtree.mockResolvedValue(10);
+      const { token } = await fileCaller().requestSaveAuthorization({
+        operation: 'copyEntityToWorkspace',
+        payload: { entityType: 'folder', id: 'doc-1', targetWorkspaceId: null },
+      });
+      await fileCaller().copyEntityToWorkspace({
+        entityType: 'folder',
+        id: 'doc-1',
+        saveAuthorization: token,
+        targetWorkspaceId: null,
+      });
+      expect(mocks.documentModel.copyToWorkspace).toHaveBeenCalled();
     });
   });
 
@@ -164,7 +240,7 @@ describe('documentRouter ephemeral procedures', () => {
         metadata: { ephemeral: true, origin: 'agent' },
       });
 
-      const result = await documentCaller().promoteDocument({ id: 'doc-1' });
+      const result = await documentCaller().promoteDocument({ saveAuthorization, id: 'doc-1' });
 
       expect(result).toEqual({ success: true });
       expect(mocks.documentModel.update).toHaveBeenCalledWith('doc-1', {
@@ -183,7 +259,7 @@ describe('documentRouter ephemeral procedures', () => {
         metadata: { ephemeral: true, other: 1 },
       });
 
-      await documentCaller().promoteDocument({ id: 'doc-1' });
+      await documentCaller().promoteDocument({ saveAuthorization, id: 'doc-1' });
 
       expect(mocks.fileModel.update).toHaveBeenCalledWith('file-9', { metadata: { other: 1 } });
     });
@@ -196,7 +272,7 @@ describe('documentRouter ephemeral procedures', () => {
       });
       mocks.fileModel.findById.mockResolvedValue({ id: 'file-9', metadata: {} });
 
-      await documentCaller().promoteDocument({ id: 'doc-1' });
+      await documentCaller().promoteDocument({ saveAuthorization, id: 'doc-1' });
 
       expect(mocks.fileModel.update).not.toHaveBeenCalled();
     });
@@ -204,7 +280,7 @@ describe('documentRouter ephemeral procedures', () => {
     it('should throw NOT_FOUND when the document does not exist', async () => {
       mocks.documentModel.findById.mockResolvedValue(undefined);
 
-      await expect(documentCaller().promoteDocument({ id: 'missing' })).rejects.toMatchObject({
+      await expect(documentCaller().promoteDocument({ saveAuthorization, id: 'missing' })).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
     });

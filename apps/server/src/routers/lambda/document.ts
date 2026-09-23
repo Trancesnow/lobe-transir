@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { notifyDocumentMention } from '@/business/server/document-mention/notifyActivity';
@@ -12,9 +13,11 @@ import { FileModel } from '@/database/models/file';
 import { MessageModel } from '@/database/models/message';
 import { RbacModel } from '@/database/models/rbac';
 import { ResourcePermissionModel } from '@/database/models/resourcePermission';
-import { DEFAULT_RESOURCE_ACCESS_LEVELS } from '@/database/schemas';
+import { DEFAULT_RESOURCE_ACCESS_LEVELS, documents, files } from '@/database/schemas';
+import { buildWorkspaceWhere } from '@/database/utils/workspace';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { createMarkdownEditorSnapshot } from '@/server/services/agentDocuments/headlessEditor';
 import { DocumentService } from '@/server/services/document';
 import { canViewDocumentContent } from '@/server/services/documentAccess';
 import { FileService } from '@/server/services/file';
@@ -23,6 +26,10 @@ import {
   buildResourcePermissionState,
   getResourceMeta,
 } from '@/server/services/resourcePermission';
+import {
+  consumeResourceSaveAuthorization,
+  issueResourceSaveAuthorization,
+} from '@/server/services/resourceSaveAuthorization';
 import { hasWorkspaceScopedPermission } from '@/server/services/workspacePermission';
 import { after } from '@/server/utils/scheduleAfterResponse';
 import { TransferErrorCode } from '@/types/transferError';
@@ -130,26 +137,8 @@ const notifyDocumentMentionsBestEffort = (
   });
 };
 
-const documentProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
-  const { ctx } = opts;
-  const wsId = ctx.workspaceId ?? undefined;
-
-  return opts.next({
-    ctx: {
-      chunkModel: new ChunkModel(ctx.serverDB, ctx.userId, wsId),
-      documentModel: new DocumentModel(ctx.serverDB, ctx.userId, wsId),
-      documentService: new DocumentService(ctx.serverDB, ctx.userId, wsId),
-      fileModel: new FileModel(ctx.serverDB, ctx.userId, wsId),
-      messageModel: new MessageModel(ctx.serverDB, ctx.userId, wsId),
-    },
-  });
-});
-
-export const documentRouter = router({
-  createDocument: documentProcedure
-    .use(withScopedPermission('document:create'))
-    .input(
-      z.object({
+const createDocumentSaveInputSchema = z.object({
+        saveAuthorization: z.string().uuid().optional(),
         content: z.string().optional(),
         editorData: z.string().optional(),
         fileType: z.string().optional(),
@@ -161,9 +150,98 @@ export const documentRouter = router({
         // Workspace-only knob; ignored in personal mode by the model layer.
         // When omitted, user-authored workspace docs default to private.
         visibility: z.enum(['private', 'public']).optional(),
+      });
+
+const createDocumentsSaveInputSchema = z.object({
+        saveAuthorization: z.string().uuid().optional(),
+        documents: z.array(
+          z.object({
+            content: z.string().optional(),
+            editorData: z.string(),
+            fileType: z.string().optional(),
+            knowledgeBaseId: z.string().optional(),
+            metadata: z.record(z.string(), z.any()).optional(),
+            parentId: z.string().optional(),
+            slug: z.string().optional(),
+            title: z.string(),
+            visibility: z.enum(['private', 'public']).optional(),
+          }),
+        ),
+      });
+
+const documentProcedure = wsCompatProcedure
+  .use(serverDatabase)
+  .use(async (opts) => {
+    const operation = opts.path.split('.').at(-1);
+    if (
+      ![
+        'createDocument',
+        'createDocuments',
+        'createFile',
+        'promoteDocument',
+        'promoteFile',
+      ].includes(operation ?? '')
+    ) {
+      return opts.next();
+    }
+    return opts.ctx.serverDB.transaction(async (transaction) => {
+      const result = await opts.next({
+        ctx: { serverDB: transaction as unknown as typeof opts.ctx.serverDB },
+      });
+      // TRPC returns errors as values; throwing is required to roll back the consumed grant.
+      if (!result.ok) throw result.error;
+      return result;
+    });
+  })
+  .use(async (opts) => {
+    const { ctx } = opts;
+    const wsId = ctx.workspaceId ?? undefined;
+
+    return opts.next({
+      ctx: {
+        chunkModel: new ChunkModel(ctx.serverDB, ctx.userId, wsId),
+        documentModel: new DocumentModel(ctx.serverDB, ctx.userId, wsId),
+        documentService: new DocumentService(ctx.serverDB, ctx.userId, wsId),
+        fileModel: new FileModel(ctx.serverDB, ctx.userId, wsId),
+        messageModel: new MessageModel(ctx.serverDB, ctx.userId, wsId),
+      },
+    });
+  });
+
+export const documentRouter = router({
+  requestSaveAuthorization: documentProcedure
+    .input(
+      z.object({
+        operation: z.enum(['createDocument', 'createDocuments', 'promoteDocument']),
+        payload: z.unknown(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      let payload = input.payload;
+      if (input.operation === 'createDocument') {
+        const { saveAuthorization: _ignored, ...parsed } = createDocumentSaveInputSchema.parse(payload);
+        payload = parsed;
+      }
+      if (input.operation === 'createDocuments') {
+        const { saveAuthorization: _ignored, ...parsed } = createDocumentsSaveInputSchema.parse(payload);
+        payload = parsed;
+      }
+      if (input.operation === 'promoteDocument') {
+        const { id } = z.object({ id: z.string() }).parse(payload);
+        const resource = await ctx.documentModel.findById(id);
+        if (!resource) throw new TRPCError({ code: 'NOT_FOUND', message: 'Resource not found' });
+        const linkedFile = resource.fileId ? await ctx.fileModel.findById(resource.fileId) : null;
+        payload = { id, linkedFile, resource };
+      }
+      return issueResourceSaveAuthorization(ctx, input.operation, payload);
+    }),
+
+  createDocument: documentProcedure
+    .use(withScopedPermission('document:create'))
+    .input(createDocumentSaveInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const { saveAuthorization, ...savePayload } = input;
+      await consumeResourceSaveAuthorization(ctx, 'createDocument', savePayload, saveAuthorization);
       // Resolve parentId if it's a slug
       let resolvedParentId = input.parentId;
       if (input.parentId) {
@@ -176,7 +254,9 @@ export const documentRouter = router({
       await assertCanCreateUnderParent(ctx, resolvedParentId);
 
       // Parse editorData from JSON string to object
-      const editorData = input.editorData ? JSON.parse(input.editorData) : undefined;
+      const editorData = input.editorData
+        ? JSON.parse(input.editorData)
+        : (await createMarkdownEditorSnapshot(input.content ?? '')).editorData;
       const document = await ctx.documentService.createDocument({
         ...input,
         editorData,
@@ -195,24 +275,15 @@ export const documentRouter = router({
 
   createDocuments: documentProcedure
     .use(withScopedPermission('document:create'))
-    .input(
-      z.object({
-        documents: z.array(
-          z.object({
-            content: z.string().optional(),
-            editorData: z.string(),
-            fileType: z.string().optional(),
-            knowledgeBaseId: z.string().optional(),
-            metadata: z.record(z.string(), z.any()).optional(),
-            parentId: z.string().optional(),
-            slug: z.string().optional(),
-            title: z.string(),
-            visibility: z.enum(['private', 'public']).optional(),
-          }),
-        ),
-      }),
-    )
+    .input(createDocumentsSaveInputSchema)
     .mutation(async ({ ctx, input }) => {
+      const { saveAuthorization, ...savePayload } = input;
+      await consumeResourceSaveAuthorization(
+        ctx,
+        'createDocuments',
+        savePayload,
+        saveAuthorization,
+      );
       // Process each document: resolve parentId and parse editorData
       const processedDocuments = await Promise.all(
         input.documents.map(async (doc) => {
@@ -265,10 +336,30 @@ export const documentRouter = router({
 
   promoteDocument: documentProcedure
     .use(withScopedPermission('document:update'))
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), saveAuthorization: z.string().uuid().optional() }))
     .mutation(async ({ ctx, input }) => {
+      await ctx.serverDB.execute(
+        sql`SELECT id FROM documents WHERE id = ${input.id} AND ${buildWorkspaceWhere(
+          { userId: ctx.userId, workspaceId: ctx.workspaceId ?? undefined }, documents,
+        )} FOR UPDATE`,
+      );
       const document = await ctx.documentModel.findById(input.id);
       if (!document) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+      await assertContentsNotInRestrictedKnowledgeBase(ctx, [input.id]);
+      if (document.fileId) {
+        await ctx.serverDB.execute(
+          sql`SELECT id FROM files WHERE id = ${document.fileId} AND ${buildWorkspaceWhere(
+            { userId: ctx.userId, workspaceId: ctx.workspaceId ?? undefined }, files,
+          )} FOR UPDATE`,
+        );
+      }
+      const linkedFile = document.fileId ? await ctx.fileModel.findById(document.fileId) : null;
+      await consumeResourceSaveAuthorization(
+        ctx,
+        'promoteDocument',
+        { id: input.id, linkedFile, resource: document },
+        input.saveAuthorization,
+      );
 
       const metadata = (document.metadata ?? {}) as Record<string, unknown>;
       // 幂等：非临时文档直接成功返回

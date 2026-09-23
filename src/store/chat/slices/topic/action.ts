@@ -209,44 +209,44 @@ export class ChatTopicActionImpl {
     }
   };
 
-  createTopic = async (sessionId?: string): Promise<string | undefined> => {
+  createTopic = async (agentId?: string): Promise<string | undefined> => {
     const { activeAgentId, internal_createTopic } = this.#get();
 
     const messages = displayMessageSelectors.activeDisplayMessages(this.#get());
 
     this.#set({ creatingTopic: true }, false, n('creatingTopic/start'));
-    const targetSessionId = sessionId || activeAgentId;
-    const modelSnapshot = snapshotAgentModel(targetSessionId);
-    const reasoningSnapshot = await snapshotAgentReasoning(targetSessionId, modelSnapshot);
+    const targetAgentId = agentId || activeAgentId;
+    const modelSnapshot = snapshotAgentModel(targetAgentId);
+    const reasoningSnapshot = await snapshotAgentReasoning(targetAgentId, modelSnapshot);
     const topicId = await internal_createTopic({
       ...modelSnapshot,
       ...(reasoningSnapshot ? { metadata: reasoningSnapshot } : {}),
       title: t('defaultTitle', { ns: 'topic' }),
       messages: messages.map((m) => m.id),
-      sessionId: targetSessionId,
+      agentId: targetAgentId,
     });
     this.#set({ creatingTopic: false }, false, n('creatingTopic/end'));
 
     return topicId;
   };
 
-  saveToTopic = async (sessionId?: string): Promise<string | undefined> => {
+  saveToTopic = async (agentId?: string): Promise<string | undefined> => {
     // if there is no message, stop
     const messages = displayMessageSelectors.activeDisplayMessages(this.#get());
     if (messages.length === 0) return;
 
     const { activeAgentId, summaryTopicTitle, internal_createTopic } = this.#get();
-    const targetSessionId = sessionId || activeAgentId;
+    const targetAgentId = agentId || activeAgentId;
 
     // 1. create topic and bind these messages
-    const modelSnapshot = snapshotAgentModel(targetSessionId);
-    const reasoningSnapshot = await snapshotAgentReasoning(targetSessionId, modelSnapshot);
+    const modelSnapshot = snapshotAgentModel(targetAgentId);
+    const reasoningSnapshot = await snapshotAgentReasoning(targetAgentId, modelSnapshot);
     const topicId = await internal_createTopic({
       ...modelSnapshot,
       ...(reasoningSnapshot ? { metadata: reasoningSnapshot } : {}),
       title: t('defaultTitle', { ns: 'topic' }),
       messages: messages.map((m) => m.id),
-      sessionId: targetSessionId,
+      agentId: targetAgentId,
     });
 
     // 2. auto summary topic Title — fire-and-forget; the title streams into the

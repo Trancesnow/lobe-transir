@@ -7,6 +7,7 @@ import { useCallback, useRef } from 'react';
 
 import { createGuideModal } from '@/components/GuideModal';
 import GuideVideo from '@/components/GuideVideo';
+import { ResourceSaveCancelledError } from '@/services/confirmResourceSave';
 import { type DocumentAction } from '@/store/file/slices/document/action';
 import { unzipFile } from '@/utils/unzipFile';
 
@@ -132,6 +133,12 @@ const useNotionImport = ({
 
             successCount++;
           } catch (error) {
+            if (error instanceof ResourceSaveCancelledError) {
+              loadingToast.close();
+              event.target.value = '';
+              await refetchResources?.();
+              return;
+            }
             console.error(`Failed to import ${mdFile.name}:`, error);
             failedCount++;
           }

@@ -59,7 +59,7 @@ export class FileUploadService {
   touchActive = async (pathname: string): Promise<FileUploadItem | undefined> =>
     this.model.touchActive(pathname, new Date(Date.now() + FILE_UPLOAD_SESSION_TTL));
 
-  assertActiveOrLegacy = async (pathname: string): Promise<FileUploadItem | undefined> => {
+  assertActive = async (pathname: string): Promise<FileUploadItem> => {
     const active = await this.touchActive(pathname);
     if (active) return active;
 
@@ -74,7 +74,7 @@ export class FileUploadService {
       });
     }
 
-    return undefined;
+    throw new TRPCError({ code: 'CONFLICT', message: 'Upload reservation is required' });
   };
 
   release = async (pathname: string): Promise<boolean> => {

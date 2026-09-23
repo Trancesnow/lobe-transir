@@ -208,7 +208,7 @@ describe('topic action', () => {
 
       expect(createTopicSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          sessionId: 'session-id',
+          agentId: 'session-id',
           messages: messages.map((m) => m.id),
         }),
       );
@@ -3397,6 +3397,37 @@ describe('topic action', () => {
       });
     });
   });
+  describe.each(['createTopic', 'saveToTopic'] as const)('%s agent association', (method) => {
+    it.each([
+      { agentId: undefined, expectedAgentId: 'active-agent' },
+      { agentId: 'specified-agent', expectedAgentId: 'specified-agent' },
+    ])(
+      'should persist agentId $expectedAgentId without sessionId',
+      async ({ agentId, expectedAgentId }) => {
+        const messages = [{ id: 'message-1' }, { id: 'message-2' }] as UIChatMessage[];
+        useChatStore.setState({
+          activeAgentId: 'active-agent',
+          activeTopicId: undefined,
+          messagesMap: { [messageMapKey({ agentId: 'active-agent' })]: messages },
+        });
+        vi.spyOn(useChatStore.getState(), 'summaryTopicTitle').mockResolvedValue(undefined);
+        const createTopicSpy = vi
+          .spyOn(topicService, 'createTopic')
+          .mockResolvedValue('new-topic-id');
+
+        const topicId = await useChatStore.getState()[method](agentId);
+
+        expect(topicId).toBe('new-topic-id');
+        expect(createTopicSpy).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            agentId: expectedAgentId,
+            messages: messages.map((message) => message.id),
+          }),
+        );
+        expect(createTopicSpy.mock.calls[0][0]).not.toHaveProperty('sessionId');
+      },
+    );
+  });
   describe('createTopic', () => {
     it.each(['createTopic', 'saveToTopic'] as const)(
       '%s waits for saved reasoning before persisting',
@@ -3472,7 +3503,7 @@ describe('topic action', () => {
         // defaults — assert the constants so default-model bumps can't break this.
         model: DEFAULT_MODEL,
         provider: DEFAULT_PROVIDER,
-        sessionId: activeAgentId,
+        agentId: activeAgentId,
         messages: messages.map((m) => m.id),
         title: 'defaultTitle',
       });

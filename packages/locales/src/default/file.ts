@@ -1,4 +1,9 @@
 export default {
+  'resourceSave.title': 'Save to resources',
+  'resourceSave.description': 'Save “{{description}}” as a new resource for long-term storage?',
+  'resourceSave.cancel': 'Do not save',
+  'resourceSave.saved': 'Saved to resources',
+  'resourceSave.failed': 'Could not save. Please try again.',
   'addFolder': 'Create Folder',
   'addLibrary': 'Add',
   'addPage': 'Create Page',

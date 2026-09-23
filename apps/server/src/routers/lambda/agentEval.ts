@@ -464,7 +464,7 @@ export const agentEvalRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const upload = await ctx.fileUploadService.assertActiveOrLegacy(input.pathname);
+      await ctx.fileUploadService.assertActive(input.pathname);
       const format = input.format || 'auto';
       const resolvedFilename = input.filename || input.pathname;
       const isXlsx = format === 'xlsx' || resolvedFilename?.match(/\.xlsx?$/i);
@@ -486,7 +486,7 @@ export const agentEvalRouter = router({
           format: result.format,
         };
       } catch (error: any) {
-        if (upload) await ctx.fileUploadService.releaseBestEffort(input.pathname);
+        await ctx.fileUploadService.releaseBestEffort(input.pathname);
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: `Failed to parse file: ${error.message}`,
@@ -513,8 +513,7 @@ export const agentEvalRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const upload = await ctx.fileUploadService.assertActiveOrLegacy(input.pathname);
-      let imported = false;
+      await ctx.fileUploadService.assertActive(input.pathname);
 
       try {
         const format = input.format || 'auto';
@@ -607,12 +606,10 @@ export const agentEvalRouter = router({
         });
 
         const result = await ctx.testCaseModel.batchCreate(testCases);
-        imported = true;
 
         return { count: result.length, data: result };
       } finally {
-        if (upload) await ctx.fileUploadService.releaseBestEffort(input.pathname);
-        else if (imported) await ctx.fileService.deleteFile(input.pathname);
+        await ctx.fileUploadService.releaseBestEffort(input.pathname);
       }
     }),
 

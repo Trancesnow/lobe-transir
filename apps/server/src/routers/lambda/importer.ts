@@ -31,7 +31,7 @@ export const importerRouter = router({
   importByFile: workspaceImportProcedure
     .input(z.object({ pathname: z.string() }))
     .mutation(async ({ input, ctx }): Promise<ImportResultData> => {
-      const upload = await ctx.fileUploadService.assertActiveOrLegacy(input.pathname);
+      await ctx.fileUploadService.assertActive(input.pathname);
       let data: ImporterEntryData | undefined;
 
       try {
@@ -42,7 +42,7 @@ export const importerRouter = router({
       }
 
       if (!data) {
-        if (upload) await ctx.fileUploadService.releaseBestEffort(input.pathname);
+        await ctx.fileUploadService.releaseBestEffort(input.pathname);
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: `Failed to read file at ${input.pathname}`,
@@ -59,12 +59,11 @@ export const importerRouter = router({
           result = await ctx.dataImporterService.importData(data);
         }
       } catch (error) {
-        if (upload) await ctx.fileUploadService.releaseBestEffort(input.pathname);
+        await ctx.fileUploadService.releaseBestEffort(input.pathname);
         throw error;
       }
 
-      if (upload) await ctx.fileUploadService.releaseBestEffort(input.pathname);
-      else await ctx.fileService.deleteFile(input.pathname);
+      await ctx.fileUploadService.releaseBestEffort(input.pathname);
 
       return result;
     }),

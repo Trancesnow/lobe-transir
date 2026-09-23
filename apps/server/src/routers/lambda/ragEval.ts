@@ -146,7 +146,7 @@ export const ragEvalRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const upload = await ctx.fileUploadService.assertActiveOrLegacy(input.pathname);
+      await ctx.fileUploadService.assertActive(input.pathname);
       try {
         const dataStr = await ctx.fileService.getFileContent(input.pathname);
         const items = JSONL.parse<InsertEvalDatasetRecord>(dataStr);
@@ -175,10 +175,9 @@ export const ragEvalRouter = router({
         );
 
         const result = await ctx.datasetRecordModel.batchCreate(data);
-        if (!upload) await ctx.fileService.deleteFile(input.pathname);
         return result;
       } finally {
-        if (upload) await ctx.fileUploadService.releaseBestEffort(input.pathname);
+        await ctx.fileUploadService.releaseBestEffort(input.pathname);
       }
     }),
 

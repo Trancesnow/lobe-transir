@@ -204,6 +204,23 @@ describe('createContextInner', () => {
 });
 
 describe('createLambdaContext', () => {
+  it('requires a same-origin authenticated browser session for resource saving', async () => {
+    for (const origin of ['same-origin', 'cross-site', 'none', '']) {
+      mockGetSession.mockResolvedValue({ user: { id: 'session-user' } });
+      const request = new NextRequest('https://example.com/api/trpc', {
+        headers: origin ? { 'sec-fetch-site': origin } : {},
+      });
+      const context = await createLambdaContext(request);
+      expect(context.resourceSaveSession).toBe(origin === 'same-origin');
+    }
+    mockGetSession.mockResolvedValue(null);
+    const context = await createLambdaContext(
+      new NextRequest('https://example.com/api/trpc', {
+        headers: { 'sec-fetch-site': 'same-origin' },
+      }),
+    );
+    expect(context.resourceSaveSession).toBe(false);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockExtractTraceContext.mockReturnValue(undefined);
