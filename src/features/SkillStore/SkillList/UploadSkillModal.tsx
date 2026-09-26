@@ -48,6 +48,7 @@ const UploadSkillContent = memo(() => {
       const hash = sha256(await file.arrayBuffer());
 
       const result = await lambdaClient.file.createFile.mutate({
+        ephemeral: true,
         fileType: file.type || 'application/zip',
         hash,
         metadata: {},
